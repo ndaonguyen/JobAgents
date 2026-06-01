@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>JobAgents.Web</RootNamespace>
+    <AssemblyName>JobAgents.Web</AssemblyName>
+    <UserSecretsId>jobagents-web-dev</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../JobAgents.Application/JobAgents.Application.csproj" />
+    <ProjectReference Include="../JobAgents.Infrastructure/JobAgents.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

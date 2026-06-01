@@ -1,0 +1,33 @@
+using FluentAssertions;
+using JobAgents.Domain.Agents;
+using JobAgents.Domain.Runs;
+using JobAgents.Infrastructure.Agents;
+
+namespace JobAgents.Infrastructure.Tests.Agents;
+
+public class AgentRunContextTests
+{
+    [Fact]
+    public async Task Concurrent_flows_do_not_leak_their_run_context()
+    {
+        var context = new AgentRunContext();
+
+        // Each flow runs on its own task (as fanned-out agents do), so its AsyncLocal writes are
+        // isolated from siblings.
+        Task<(string run, string agent)> Flow(int i) => Task.Run(async () =>
+        {
+            context.Set(new RunId($"run-{i}"), AgentId.ResumeMatch(i));
+            await Task.Delay(10);
+            return (context.CurrentRun!.Value.Value, context.CurrentAgent!.Value.Value);
+        });
+
+        var results = await Task.WhenAll(Flow(1), Flow(2), Flow(3));
+
+        results.Should().BeEquivalentTo(new[]
+        {
+            ("run-1", "resume-match-1"),
+            ("run-2", "resume-match-2"),
+            ("run-3", "resume-match-3"),
+        });
+    }
+}

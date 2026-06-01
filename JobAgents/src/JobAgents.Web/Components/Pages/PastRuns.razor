@@ -1,0 +1,65 @@
+@page "/past-runs"
+@inject RunStore Store
+
+<PageTitle>Past Runs · JobAgents</PageTitle>
+
+<h1>Past Runs</h1>
+
+@if (_runs is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (_runs.Count == 0)
+{
+    <p class="text-muted">No runs saved yet. Start a job hunt on the home page.</p>
+}
+else
+{
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th>When (UTC)</th>
+                <th>Preferences</th>
+                <th>Top matches</th>
+                <th>Cost</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var run in _runs)
+            {
+                <tr>
+                    <td>@run.CompletedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td class="small">@Truncate(run.Preferences, 60)</td>
+                    <td>@run.Result.Dossiers.Count</td>
+                    <td>@(run.EstimatedCostUsd?.ToString("$0.0000") ?? "—")</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary"
+                                @onclick="() => _selected = (_selected?.RunId == run.RunId ? null : run)">
+                            @(_selected?.RunId == run.RunId ? "Hide" : "View")
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (_selected is { } selected)
+    {
+        <div class="alert alert-info">@selected.Result.Summary</div>
+        @foreach (var dossier in selected.Result.Dossiers)
+        {
+            <DossierCard Dossier="dossier" />
+        }
+    }
+}
+
+@code {
+    private IReadOnlyList<PersistedRun>? _runs;
+    private PersistedRun? _selected;
+
+    protected override async Task OnInitializedAsync() => _runs = await Store.LoadAllAsync();
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max] + "…";
+}

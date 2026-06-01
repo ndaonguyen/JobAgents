@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>JobAgents.Domain</RootNamespace>
+    <AssemblyName>JobAgents.Domain</AssemblyName>
+  </PropertyGroup>
+
+</Project>

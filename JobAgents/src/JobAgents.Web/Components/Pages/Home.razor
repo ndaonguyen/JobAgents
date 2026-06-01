@@ -1,0 +1,239 @@
+@page "/"
+@rendermode InteractiveServer
+@using System.Text.Json
+@implements IDisposable
+@inject StartJobHuntUseCase JobHunt
+@inject RunStore Store
+
+<PageTitle>JobAgents</PageTitle>
+
+<h1>Job Hunt</h1>
+<p class="text-muted">
+    Paste your resume and what you're after. A coordinator agent sources live jobs, matches them to
+    you, then researches the company, salary, and interview prep for your best matches.
+</p>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <EditForm Model="this" OnValidSubmit="StartAsync">
+            <div class="mb-3">
+                <label class="form-label fw-bold">Resume</label>
+                <textarea class="form-control" rows="10" @bind="_resume"
+                          placeholder="Paste your resume text here..."></textarea>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-bold">Preferences</label>
+                <textarea class="form-control" rows="3" @bind="_preferences"
+                          placeholder="e.g. Senior backend roles, remote or London, .NET, £90k+"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" disabled="@(_running || string.IsNullOrWhiteSpace(_resume))">
+                @if (_running)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    <span>Hunting…</span>
+                }
+                else
+                {
+                    <span>Find jobs</span>
+                }
+            </button>
+            @if (_cost is { } cost)
+            {
+                <span class="ms-3 badge bg-secondary">Run cost: @cost.ToString("$0.0000")</span>
+            }
+        </EditForm>
+
+        @if (_error is not null)
+        {
+            <div class="alert alert-danger mt-3">@_error</div>
+        }
+
+        <h5 class="mt-4">Activity</h5>
+        <div class="activity-log border rounded p-2" style="max-height: 460px; overflow-y: auto;">
+            @if (_activity.Count == 0)
+            {
+                <span class="text-muted">No activity yet.</span>
+            }
+            @foreach (var item in _activity)
+            {
+                <div class="activity-item small mb-1">
+                    <span>@item.Icon</span>
+                    <strong>@item.Title</strong>
+                    @if (!string.IsNullOrWhiteSpace(item.Detail))
+                    {
+                        <div class="text-muted ms-3">@item.Detail</div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <h5>Results</h5>
+        @if (_result is null)
+        {
+            <p class="text-muted">Ranked job dossiers will appear here when the run finishes.</p>
+        }
+        else
+        {
+            <div class="alert alert-info">@_result.Summary</div>
+            @foreach (var dossier in _result.Dossiers)
+            {
+                <DossierCard Dossier="dossier" />
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private string _resume = string.Empty;
+    private string _preferences = string.Empty;
+    private bool _running;
+    private string? _error;
+    private decimal? _cost;
+    private JobHuntResult? _result;
+
+    private readonly List<ActivityItem> _activity = new();
+    private readonly Dictionary<string, ActivityItem> _streaming = new();
+    private CancellationTokenSource? _cts;
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private async Task StartAsync()
+    {
+        if (_running)
+            return;
+
+        _running = true;
+        _error = null;
+        _cost = null;
+        _result = null;
+        _activity.Clear();
+        _streaming.Clear();
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            var (_, events) = JobHunt.Start(_resume, _preferences, ct: _cts.Token);
+
+            await foreach (var evt in events.WithCancellation(_cts.Token))
+            {
+                Handle(evt);
+
+                if (evt is AgentFinishedEvent finished && finished.AgentId == AgentId.System)
+                {
+                    _result = TryParseResult(finished.FinalText);
+                    _cost = finished.EstimatedCostUsd;
+                    await PersistAsync(finished);
+                }
+                else if (evt is AgentErrorEvent error && error.AgentId == AgentId.System)
+                {
+                    _error = error.Message;
+                }
+
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Navigated away / cancelled.
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _running = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void Handle(AgentEvent evt)
+    {
+        switch (evt)
+        {
+            case AgentStartedEvent e:
+                var item = new ActivityItem("▶️", $"{e.Role} started", string.Empty);
+                _streaming[e.AgentId.Value] = item;
+                _activity.Add(item);
+                break;
+
+            case AgentTokenEvent e when _streaming.TryGetValue(e.AgentId.Value, out var streaming):
+                streaming.Detail += e.Delta;
+                break;
+
+            case AgentFinishedEvent e when e.AgentId != AgentId.System:
+                if (_streaming.TryGetValue(e.AgentId.Value, out var done))
+                    done.Icon = "✅";
+                break;
+
+            case ToolCalledEvent e:
+                _activity.Add(new ActivityItem("🔧", e.ToolName, Truncate(e.ArgumentsJson, 140)));
+                break;
+
+            case JobsFoundEvent e:
+                _activity.Add(new ActivityItem("🔎", $"Found {e.Postings.Count} postings", string.Empty));
+                break;
+
+            case JobMatchedEvent e:
+                _activity.Add(new ActivityItem("📋",
+                    $"{e.Match.Posting.Title} @ {e.Match.Posting.Company}", $"Fit {e.Match.Score}/100"));
+                break;
+
+            case CompanyResearchedEvent e:
+                _activity.Add(new ActivityItem("🏢", $"Researched {e.Insight.Company}", string.Empty));
+                break;
+
+            case SalaryAnalyzedEvent e:
+                _activity.Add(new ActivityItem("💰", "Salary analysed", e.Estimate.Basis));
+                break;
+
+            case InterviewPrepReadyEvent e:
+                _activity.Add(new ActivityItem("🎤",
+                    $"Interview prep ready ({e.Prep.LikelyQuestions.Count} questions)", string.Empty));
+                break;
+        }
+    }
+
+    private async Task PersistAsync(AgentFinishedEvent finished)
+    {
+        if (_result is null)
+            return;
+
+        var run = new PersistedRun(
+            finished.RunId.Value, DateTime.UtcNow, _preferences, finished.EstimatedCostUsd, _result);
+        try
+        {
+            await Store.SaveAsync(run);
+        }
+        catch
+        {
+            // Persistence is best-effort; don't fail the run on a write error.
+        }
+    }
+
+    private static JobHuntResult? TryParseResult(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<JobHuntResult>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string Truncate(string value, int max) =>
+        value.Length <= max ? value : value[..max] + "…";
+
+    public void Dispose() => _cts?.Cancel();
+
+    private sealed class ActivityItem(string icon, string title, string detail)
+    {
+        public string Icon { get; set; } = icon;
+        public string Title { get; set; } = title;
+        public string Detail { get; set; } = detail;
+    }
+}

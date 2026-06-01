@@ -1,0 +1,97 @@
+@namespace JobAgents.Web.Components.Shared
+
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <strong>@Dossier.Match.Posting.Title</strong>
+            <span class="text-muted">@Dossier.Match.Posting.Company · @Dossier.Match.Posting.Location</span>
+        </div>
+        <span class="badge bg-primary">Fit @Dossier.Match.Score/100</span>
+    </div>
+    <div class="card-body">
+        <p class="card-text">@Dossier.Match.Rationale</p>
+
+        @if (Dossier.Match.MatchedSkills.Count > 0)
+        {
+            <div class="mb-2">
+                @foreach (var skill in Dossier.Match.MatchedSkills)
+                {
+                    <span class="badge bg-success me-1">@skill</span>
+                }
+            </div>
+        }
+        @if (Dossier.Match.Gaps.Count > 0)
+        {
+            <div class="mb-2">
+                @foreach (var gap in Dossier.Match.Gaps)
+                {
+                    <span class="badge bg-warning text-dark me-1">gap: @gap</span>
+                }
+            </div>
+        }
+
+        <div class="row mt-3">
+            @if (Dossier.Company is { } company)
+            {
+                <div class="col-md-6 mb-2">
+                    <h6>🏢 Company</h6>
+                    <p class="small mb-1">@company.Summary</p>
+                    <ul class="small mb-0">
+                        @foreach (var highlight in company.Highlights)
+                        {
+                            <li>@highlight</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (Dossier.Salary is { } salary)
+            {
+                <div class="col-md-6 mb-2">
+                    <h6>💰 Salary</h6>
+                    <p class="small mb-1">@FormatSalary(salary)</p>
+                    <p class="small text-muted mb-0">@salary.Basis</p>
+                </div>
+            }
+        </div>
+
+        @if (Dossier.Interview is { } interview && interview.LikelyQuestions.Count > 0)
+        {
+            <div class="mt-2">
+                <h6>🎤 Interview prep</h6>
+                <ul class="small mb-1">
+                    @foreach (var q in interview.LikelyQuestions)
+                    {
+                        <li>@q</li>
+                    }
+                </ul>
+                @if (interview.PrepNotes.Count > 0)
+                {
+                    <p class="small text-muted mb-0">@string.Join(" · ", interview.PrepNotes)</p>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(Dossier.Match.Posting.Url))
+        {
+            <a class="btn btn-sm btn-outline-primary mt-2" href="@Dossier.Match.Posting.Url" target="_blank">
+                View posting
+            </a>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public required JobDossier Dossier { get; set; }
+
+    private static string FormatSalary(SalaryEstimate s)
+    {
+        if (s.Low is null && s.Median is null && s.High is null)
+            return "No reliable estimate.";
+        var parts = new List<string>();
+        if (s.Low is { } low) parts.Add($"{low:N0}");
+        if (s.Median is { } median) parts.Add($"~{median:N0}");
+        if (s.High is { } high) parts.Add($"{high:N0}");
+        return $"{string.Join(" – ", parts)} {s.Currency}";
+    }
+}
