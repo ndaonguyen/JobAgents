@@ -23,7 +23,8 @@ public sealed record JobPosting(
     string Company,
     string Location,
     string Url,
-    string Summary);
+    string Summary,
+    string? PostedDate = null);
 
 /// <summary>The Resume-Matching agent's assessment of one posting against the candidate.</summary>
 public sealed record JobMatch(

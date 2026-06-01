@@ -199,7 +199,16 @@
                 <div class="row g-2 mt-1 align-items-end">
                     <div class="col-sm-4">
                         <label class="form-label small mb-0">Location</label>
-                        <input class="form-control" @bind="_location" placeholder="e.g. London" />
+                        <select class="form-select" @bind="_location" disabled="@(!string.IsNullOrWhiteSpace(_customLocation))">
+                            <option value="">Anywhere</option>
+                            <option value="Remote">Remote</option>
+                            @foreach (var city in CityOptions)
+                            {
+                                <option value="@city">@city</option>
+                            }
+                        </select>
+                        <input class="form-control form-control-sm mt-1" @bind="_customLocation" @bind:event="oninput"
+                               placeholder="or type a custom location" />
                     </div>
                     <div class="col-sm-5">
                         <label class="form-label small mb-0">Expected salary range</label>
@@ -217,6 +226,30 @@
                                 <option value="@c">@c</option>
                             }
                         </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 mt-1 align-items-end">
+                    <div class="col-sm-4">
+                        <label class="form-label small mb-0">Posted within</label>
+                        <select class="form-select" @bind="_postedWithin" disabled="@HasExactDates">
+                            @foreach (var option in PostedWithinOptions)
+                            {
+                                <option value="@option.Value">@option.Key</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-sm-8">
+                        <label class="form-label small mb-0">Or exact dates <span class="text-muted">(overrides the above)</span></label>
+                        <div class="input-group">
+                            <input type="date" class="form-control" @bind="_fromDate" aria-label="From" />
+                            <span class="input-group-text">→</span>
+                            <input type="date" class="form-control" @bind="_toDate" aria-label="To" />
+                            @if (HasExactDates)
+                            {
+                                <button class="btn btn-outline-secondary" type="button" @onclick="ClearExactDates">Clear</button>
+                            }
+                        </div>
                     </div>
                 </div>
 
@@ -329,6 +362,29 @@
     private static readonly string[] WorkingStyleOptions = ["Onsite", "Hybrid", "Remote"];
     private static readonly string[] CurrencyOptions = ["USD", "GBP", "EUR", "AUD", "NZD", "CAD", "VND"];
 
+    // Label → Tavily time_range value ("" = any time).
+    private static readonly Dictionary<string, string> PostedWithinOptions = new()
+    {
+        ["Any time"] = "",
+        ["Past week"] = "week",
+        ["Past month"] = "month",
+        ["Past year"] = "year",
+    };
+
+    // Major hiring hubs worldwide; Ho Chi Minh City is the default selection.
+    private static readonly string[] CityOptions =
+    [
+        "Ho Chi Minh City", "Hanoi", "Da Nang",
+        "Singapore", "Bangkok", "Kuala Lumpur", "Jakarta", "Manila",
+        "Tokyo", "Seoul", "Hong Kong", "Shanghai", "Beijing", "Taipei",
+        "Bangalore", "Mumbai", "Hyderabad", "Sydney", "Melbourne", "Auckland",
+        "London", "Dublin", "Berlin", "Munich", "Amsterdam", "Paris", "Madrid",
+        "Barcelona", "Lisbon", "Zurich", "Stockholm", "Warsaw",
+        "Dubai", "Tel Aviv",
+        "New York", "San Francisco", "Seattle", "Austin", "Boston", "Los Angeles", "Chicago",
+        "Toronto", "Vancouver",
+    ];
+
     private const string AnywhereSource = "Anywhere (web)";
 
     // Source label → domain to restrict Tavily to. "Anywhere" (and the empty selection) means no filter.
@@ -354,7 +410,10 @@
     private readonly HashSet<string> _selectedRoles = new();
     private readonly HashSet<string> _selectedLanguages = new();
     private readonly HashSet<string> _workingStyles = new();
-    private string _location = string.Empty;
+    private string _location = "Ho Chi Minh City";
+    private string _customLocation = string.Empty;
+    private DateOnly? _fromDate;
+    private DateOnly? _toDate;
     private int? _salaryMin;
     private int? _salaryMax;
     private string _currency = "USD";
@@ -362,6 +421,7 @@
     private readonly HashSet<string> _selectedSources = new();
     private int _minMatchScore = 60;
     private int _lastMinScore = 60;
+    private string _postedWithin = "month"; // default to the last month to avoid stale results
     private string _lastPreferences = string.Empty;
     private SearchInputs _lastInputs = SearchInputs.Empty;
     private string _lastTitle = string.Empty;
@@ -509,7 +569,18 @@
         _workingStyles.Clear();
         foreach (var style in inputs.WorkingStyles ?? [])
             _workingStyles.Add(style);
-        _location = inputs.Location ?? string.Empty;
+        // Restore into the dropdown if it's a known option, else into the custom box.
+        var loc = inputs.Location ?? string.Empty;
+        if (loc.Length == 0 || loc == "Remote" || CityOptions.Contains(loc))
+        {
+            _location = loc;
+            _customLocation = string.Empty;
+        }
+        else
+        {
+            _location = string.Empty;
+            _customLocation = loc;
+        }
         _salaryMin = inputs.SalaryMin;
         _salaryMax = inputs.SalaryMax;
         _currency = string.IsNullOrWhiteSpace(inputs.Currency) ? "USD" : inputs.Currency;
@@ -518,19 +589,25 @@
         foreach (var source in inputs.Sources ?? [])
             _selectedSources.Add(source);
         _minMatchScore = Math.Clamp(inputs.MinMatchScore, 0, 100);
+        _postedWithin = PostedWithinOptions.Values.Contains(inputs.PostedWithin ?? "") ? inputs.PostedWithin ?? "" : "month";
+        _fromDate = ParseDate(inputs.StartDate);
+        _toDate = ParseDate(inputs.EndDate);
     }
 
     private SearchInputs CurrentInputs() => new(
         Roles: RoleOptions.Where(_selectedRoles.Contains).ToArray(),
         Languages: LanguageOptions.Where(_selectedLanguages.Contains).ToArray(),
         WorkingStyles: WorkingStyleOptions.Where(_workingStyles.Contains).ToArray(),
-        Location: _location.Trim(),
+        Location: EffectiveLocation,
         SalaryMin: _salaryMin,
         SalaryMax: _salaryMax,
         Currency: _currency,
         Other: _otherPreferences.Trim(),
         Sources: SourceOptions.Keys.Where(_selectedSources.Contains).ToArray(),
-        MinMatchScore: _minMatchScore);
+        MinMatchScore: _minMatchScore,
+        PostedWithin: _postedWithin,
+        StartDate: _fromDate?.ToString("yyyy-MM-dd"),
+        EndDate: _toDate?.ToString("yyyy-MM-dd"));
 
     /// <summary>A short, scannable title summarising the key search points.</summary>
     private static string BuildTitle(SearchInputs i)
@@ -621,6 +698,22 @@
             _selectedSources.Remove(source);
     }
 
+    // A typed custom location takes precedence over the dropdown selection.
+    private string EffectiveLocation =>
+        string.IsNullOrWhiteSpace(_customLocation) ? _location : _customLocation.Trim();
+
+    private bool HasExactDates => _fromDate is not null || _toDate is not null;
+
+    private void ClearExactDates()
+    {
+        _fromDate = null;
+        _toDate = null;
+    }
+
+    private static DateOnly? ParseDate(string? value) =>
+        DateOnly.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var d) ? d : null;
+
     /// <summary>Maps the selected sources to Tavily include-domains. Empty = search the whole web.</summary>
     private IReadOnlyList<string> SelectedDomains()
     {
@@ -648,8 +741,8 @@
             var styles = WorkingStyleOptions.Where(_workingStyles.Contains);
             lines.Add($"Working style: {string.Join(", ", styles)}");
         }
-        if (!string.IsNullOrWhiteSpace(_location))
-            lines.Add($"Location: {_location.Trim()}");
+        if (!string.IsNullOrWhiteSpace(EffectiveLocation))
+            lines.Add($"Location: {EffectiveLocation}");
 
         if (_salaryMin is not null || _salaryMax is not null)
         {
@@ -713,6 +806,9 @@
             IncludeDomains = domains,
             MaxResults = maxResults,
             MinMatchScore = _minMatchScore,
+            TimeRange = string.IsNullOrEmpty(_postedWithin) ? null : _postedWithin,
+            StartDate = _fromDate?.ToString("yyyy-MM-dd"),
+            EndDate = _toDate?.ToString("yyyy-MM-dd"),
         };
 
         try

@@ -9,6 +9,16 @@
             {
                 <span class="badge bg-light text-dark border ms-1">@SourceHostUtil.From(Dossier.Match.Posting.Url)</span>
             }
+            @if (!string.IsNullOrWhiteSpace(Dossier.Match.Posting.PostedDate))
+            {
+                <span class="badge bg-light text-dark border ms-1">🗓 @Dossier.Match.Posting.PostedDate</span>
+            }
+            else
+            {
+                <span class="badge bg-light text-muted border ms-1" title="No posting date was detected for this result">
+                    🗓 date n/a
+                </span>
+            }
         </div>
         <span class="badge bg-primary">Fit @Dossier.Match.Score/100</span>
     </div>

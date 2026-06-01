@@ -31,8 +31,11 @@ public sealed class Coordinator(
         var runId = request.RunId;
         var usage = AgentUsage.Zero;
 
-        // Make the run's source filter available to the web-search plugin (flows via AsyncLocal).
+        // Make the run's source + recency filters available to the web-search plugin (flows via AsyncLocal).
         context.IncludeDomains = config.IncludeDomains ?? Array.Empty<string>();
+        context.TimeRange = config.TimeRange;
+        context.StartDate = config.StartDate;
+        context.EndDate = config.EndDate;
 
         // 1. Parse criteria.
         var (criteria, criteriaUsage) = await ParseCriteriaAsync(request, config, ct);

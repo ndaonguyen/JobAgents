@@ -14,7 +14,10 @@ public sealed record SearchInputs(
     string Currency,
     string Other,
     string[]? Sources = null,
-    int MinMatchScore = 60)
+    int MinMatchScore = 60,
+    string? PostedWithin = null,
+    string? StartDate = null,
+    string? EndDate = null)
 {
     public static SearchInputs Empty { get; } =
         new([], [], [], string.Empty, null, null, "USD", string.Empty, []);

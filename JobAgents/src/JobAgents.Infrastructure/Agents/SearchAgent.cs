@@ -26,10 +26,15 @@ public sealed class SearchAgent(IAgentRunner runner) : ISearchAgent
         - Use country-level location terms when a city yields little (e.g. "Vietnam" as well as
           "Ho Chi Minh City" / "Hà Nội").
 
+        Prefer recently-posted roles; skip listings that are clearly expired or stale.
+
         Then return ONLY a JSON array of the best DISTINCT postings (dedupe by company+title), each:
-        { "title": string, "company": string, "location": string, "url": string, "summary": string }
-        The "summary" is a 1-2 sentence description of the role. Do not invent postings or URLs; only
-        include results grounded in the search tool output. Return at most the requested number.
+        { "title": string, "company": string, "location": string, "url": string, "summary": string,
+          "postedDate": string or null }
+        The "summary" is a 1-2 sentence description of the role. Set "postedDate" to the result's
+        publishedDate when the tool provides one (ISO date like 2026-05-01), otherwise null — never
+        guess a date. Do not invent postings or URLs; only include results grounded in the search tool
+        output. Return at most the requested number.
         """;
 
     public async Task<IReadOnlyList<JobPosting>> FindJobsAsync(

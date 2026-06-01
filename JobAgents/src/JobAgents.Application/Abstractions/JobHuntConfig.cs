@@ -15,7 +15,10 @@ public sealed record JobHuntConfig(
     int MaxFanOutConcurrency = 3,
     int TopMatchesToExpand = 3,
     int MinMatchScore = 60,
-    IReadOnlyList<string>? IncludeDomains = null)
+    IReadOnlyList<string>? IncludeDomains = null,
+    string? TimeRange = null,
+    string? StartDate = null,
+    string? EndDate = null)
 {
     public static JobHuntConfig Default { get; } = new();
 }

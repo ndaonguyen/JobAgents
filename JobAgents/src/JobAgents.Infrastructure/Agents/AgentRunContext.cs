@@ -14,6 +14,9 @@ public sealed class AgentRunContext
     private static readonly AsyncLocal<RunId?> _runId = new();
     private static readonly AsyncLocal<AgentId?> _agentId = new();
     private static readonly AsyncLocal<IReadOnlyList<string>?> _includeDomains = new();
+    private static readonly AsyncLocal<string?> _timeRange = new();
+    private static readonly AsyncLocal<string?> _startDate = new();
+    private static readonly AsyncLocal<string?> _endDate = new();
 
     public RunId? CurrentRun
     {
@@ -32,6 +35,26 @@ public sealed class AgentRunContext
     {
         get => _includeDomains.Value ?? Array.Empty<string>();
         set => _includeDomains.Value = value;
+    }
+
+    /// <summary>Recency window for job-sourcing web search (Tavily time_range): day/week/month/year, or null.</summary>
+    public string? TimeRange
+    {
+        get => _timeRange.Value;
+        set => _timeRange.Value = value;
+    }
+
+    /// <summary>Exact job-sourcing date bounds (YYYY-MM-DD). When set, they take precedence over TimeRange.</summary>
+    public string? StartDate
+    {
+        get => _startDate.Value;
+        set => _startDate.Value = value;
+    }
+
+    public string? EndDate
+    {
+        get => _endDate.Value;
+        set => _endDate.Value = value;
     }
 
     public void Set(RunId runId, AgentId agentId)
