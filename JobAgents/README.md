@@ -66,13 +66,6 @@ You can target specific job sites via the **Sources** selector (ITviec, VietnamW
 TopCV, or the whole web) — these map to Tavily's `include_domains`, so no separate job-board API or
 extra keys are needed. Leaving it empty (or choosing "Anywhere") searches the whole web.
 
-Optionally, set a **Jooble** key to add a structured job-board source the Search agent can also call
-(it stays dormant until configured):
-
-```bash
-dotnet user-secrets set "JobAgents:Jooble:ApiKey" "<your-jooble-key>"
-```
-
 Open the printed URL, paste a resume + preferences, and hit **Find jobs**. Watch the activity log
 stream Coordinator → Search → Resume Matching → Company / Salary / Interview, then the ranked dossiers
 appear on the right. Finished runs are saved to `src/JobAgents.Web/results/ui-*.jsonl` and listed on

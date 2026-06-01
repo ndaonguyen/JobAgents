@@ -23,7 +23,6 @@ public sealed class JobSearchPlugin(HttpClient http, IOptions<JobAgentsOptions> 
     };
 
     private readonly TavilyOptions _tavily = options.Value.Tavily;
-    private readonly JoobleOptions _jooble = options.Value.Jooble;
 
     [KernelFunction("search_web")]
     [Description("Searches the web for live results. Use it to find job postings or research companies.")]
@@ -60,36 +59,6 @@ public sealed class JobSearchPlugin(HttpClient http, IOptions<JobAgentsOptions> 
         return JsonSerializer.Serialize(projected, JsonOptions);
     }
 
-    [KernelFunction("search_job_board")]
-    [Description("Searches a structured job board (Jooble) for postings, returning title, company, " +
-                 "location, salary and link. Prefer this for concrete listings; if it reports it is " +
-                 "unavailable, rely on search_web instead.")]
-    public async Task<string> SearchJobBoardAsync(
-        [Description("Job keywords, e.g. 'senior backend C#'")] string keywords,
-        [Description("Location, e.g. 'Ho Chi Minh City' or 'Remote' (optional)")] string location = "",
-        CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(_jooble.ApiKey))
-            return "{\"unavailable\":\"Job board (Jooble) is not configured.\"}";
-
-        var url = $"{_jooble.BaseUrl.TrimEnd('/')}/{_jooble.ApiKey}";
-        var request = new JoobleRequest(keywords, location);
-
-        using var response = await http.PostAsJsonAsync(url, request, JsonOptions, ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            return $"{{\"error\":\"Jooble request failed ({(int)response.StatusCode}): {body}\"}}";
-        }
-
-        var result = await response.Content.ReadFromJsonAsync<JoobleResponse>(JsonOptions, ct);
-        var jobs = result?.Jobs ?? [];
-        var projected = jobs
-            .Take(10)
-            .Select(j => new { j.Title, j.Company, j.Location, j.Salary, Url = j.Link, Snippet = Truncate(j.Snippet, 400) });
-        return JsonSerializer.Serialize(projected, JsonOptions);
-    }
-
     private static string Truncate(string? value, int max)
     {
         value ??= string.Empty;
@@ -110,19 +79,4 @@ public sealed class JobSearchPlugin(HttpClient http, IOptions<JobAgentsOptions> 
         [property: JsonPropertyName("title")] string? Title,
         [property: JsonPropertyName("url")] string? Url,
         [property: JsonPropertyName("content")] string? Content);
-
-    private sealed record JoobleRequest(
-        [property: JsonPropertyName("keywords")] string Keywords,
-        [property: JsonPropertyName("location")] string Location);
-
-    private sealed record JoobleResponse(
-        [property: JsonPropertyName("jobs")] List<JoobleJob> Jobs);
-
-    private sealed record JoobleJob(
-        [property: JsonPropertyName("title")] string? Title,
-        [property: JsonPropertyName("company")] string? Company,
-        [property: JsonPropertyName("location")] string? Location,
-        [property: JsonPropertyName("salary")] string? Salary,
-        [property: JsonPropertyName("link")] string? Link,
-        [property: JsonPropertyName("snippet")] string? Snippet);
 }
