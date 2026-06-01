@@ -17,7 +17,8 @@ public interface IKernelFactory
 public sealed class KernelFactory(
     IOptions<JobAgentsOptions> options,
     IHttpClientFactory httpClientFactory,
-    EventPublishingFunctionFilter functionFilter)
+    EventPublishingFunctionFilter functionFilter,
+    AgentRunContext runContext)
     : IKernelFactory
 {
     private readonly OpenAiOptions _openAi = options.Value.OpenAi;
@@ -38,7 +39,7 @@ public sealed class KernelFactory(
         if (includePlugins)
         {
             var searchHttp = httpClientFactory.CreateClient("tavily");
-            var searchPlugin = new JobSearchPlugin(searchHttp, options);
+            var searchPlugin = new JobSearchPlugin(searchHttp, options, runContext);
             kernel.Plugins.AddFromObject(searchPlugin, "Web");
         }
 

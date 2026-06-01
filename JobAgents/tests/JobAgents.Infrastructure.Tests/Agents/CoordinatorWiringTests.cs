@@ -17,7 +17,13 @@ public class CoordinatorWiringTests
     {
         var bus = new ChannelAgentEventBus();
         var runId = new RunId("wiring");
-        var config = JobHuntConfig.Default with { TopMatchesToExpand = 3, MaxFanOutConcurrency = 2 };
+        var config = JobHuntConfig.Default with
+        {
+            TopMatchesToExpand = 3,
+            MaxFanOutConcurrency = 2,
+            IncludeDomains = ["itviec.com", "linkedin.com"],
+        };
+        var context = new AgentRunContext();
 
         var postings = Enumerable.Range(0, 5)
             .Select(i => new JobPosting($"Role {i}", $"Co {i}", "Remote", $"https://x/{i}", "summary"))
@@ -32,7 +38,7 @@ public class CoordinatorWiringTests
 
         var coordinator = new Coordinator(
             new FakeRunner(), search, match, company, salary, interview, bus,
-            NullLogger<Coordinator>.Instance);
+            context, NullLogger<Coordinator>.Instance);
 
         var subscription = CollectAsync(bus, runId);
         await coordinator.RunAsync(new AgentRunRequest(runId, "resume", "prefs"), config);

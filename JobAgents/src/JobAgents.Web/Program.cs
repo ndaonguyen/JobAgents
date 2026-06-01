@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using JobAgents.Application;
 using JobAgents.Infrastructure.DependencyInjection;
 using JobAgents.Web.Components;
@@ -35,5 +37,16 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// Download all saved runs as a JSON file.
+app.MapGet("/export/runs", async (RunStore store, CancellationToken ct) =>
+{
+    var runs = await store.LoadAllAsync(ct);
+    var json = JsonSerializer.Serialize(runs, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+    });
+    return Results.File(Encoding.UTF8.GetBytes(json), "application/json", "jobagents-runs.json");
+});
 
 app.Run();

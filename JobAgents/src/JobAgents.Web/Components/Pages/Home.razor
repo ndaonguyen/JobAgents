@@ -17,6 +17,25 @@
 
 <div class="row g-4">
     <div class="col-lg-5">
+        @{
+            var pinned = _recent.Where(r => r.Pinned && r.Inputs is not null).ToList();
+        }
+        @if (pinned.Count > 0)
+        {
+            <div class="mb-3">
+                <label class="form-label fw-bold">⭐ Pinned searches</label>
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var run in pinned)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-warning"
+                                @onclick="() => ApplyPinned(run)" title="Load this search">
+                            @run.Title
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+
         @if (_recent.Count > 0)
         {
             <div class="mb-3">
@@ -25,7 +44,7 @@
                     <option value="">— start fresh —</option>
                     @foreach (var run in _recent)
                     {
-                        <option value="@run.RunId">@run.Title (@run.CompletedAtUtc.ToString("MM-dd HH:mm"))</option>
+                        <option value="@run.RunId">@(run.Pinned ? "★ " : "")@run.Title (@run.CompletedAtUtc.ToString("MM-dd HH:mm"))</option>
                     }
                 </select>
                 @if (_recentStatus is not null)
@@ -120,6 +139,21 @@
                                    checked="@_workingStyles.Contains(style)"
                                    @onchange="e => ToggleWorkingStyle(style, (bool)e.Value!)" />
                             <label class="form-check-label" for="ws-@style">@style</label>
+                        </div>
+                    }
+                </div>
+
+                <div class="mt-2">
+                    <label class="form-label small mb-0 d-block">
+                        Sources <span class="text-muted">(which sites to scan — none = whole web)</span>
+                    </label>
+                    @foreach (var source in SourceOptions.Keys)
+                    {
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="src-@source"
+                                   checked="@_selectedSources.Contains(source)"
+                                   @onchange="e => ToggleSource(source, (bool)e.Value!)" />
+                            <label class="form-check-label" for="src-@source">@source</label>
                         </div>
                     }
                 </div>
@@ -232,7 +266,19 @@
     ];
 
     private static readonly string[] WorkingStyleOptions = ["Onsite", "Hybrid", "Remote"];
-    private static readonly string[] CurrencyOptions = ["USD", "GBP", "EUR", "AUD", "NZD", "CAD"];
+    private static readonly string[] CurrencyOptions = ["USD", "GBP", "EUR", "AUD", "NZD", "CAD", "VND"];
+
+    private const string AnywhereSource = "Anywhere (web)";
+
+    // Source label → domain to restrict Tavily to. "Anywhere" (and the empty selection) means no filter.
+    private static readonly Dictionary<string, string> SourceOptions = new()
+    {
+        ["ITviec"] = "itviec.com",
+        ["VietnamWorks"] = "vietnamworks.com",
+        ["LinkedIn"] = "linkedin.com",
+        ["TopCV"] = "topcv.vn",
+        [AnywhereSource] = "",
+    };
 
     private string _resume = string.Empty;
     private ResumeInput _resumeMode = ResumeInput.Paste;
@@ -251,12 +297,20 @@
     private int? _salaryMax;
     private string _currency = "USD";
     private string _otherPreferences = string.Empty;
+    private readonly HashSet<string> _selectedSources = new();
     private string _lastPreferences = string.Empty;
     private SearchInputs _lastInputs = SearchInputs.Empty;
     private string _lastTitle = string.Empty;
 
     private List<PersistedRun> _recent = new();
     private string? _recentStatus;
+    private bool _pendingAutoRun;
+
+    [SupplyParameterFromQuery(Name = "continue")]
+    public string? ContinueRunId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "run")]
+    public bool AutoRun { get; set; }
 
     private string? _error;
     private decimal? _cost;
@@ -313,7 +367,32 @@
             _profileStatus = $"Loaded your saved CV (updated {profile.UpdatedAtUtc:yyyy-MM-dd}).";
         }
 
-        await RefreshRecentAsync();
+        var all = await Store.LoadAllAsync();
+        _recent = all.Take(10).ToList();
+
+        // Deep-linked "Run again" from Past Runs: pre-fill the form, and optionally auto-start.
+        if (!string.IsNullOrEmpty(ContinueRunId) &&
+            all.FirstOrDefault(r => r.RunId == ContinueRunId) is { Inputs: { } inputs } run)
+        {
+            ApplyInputs(inputs);
+            _recentStatus = $"Loaded \"{run.Title}\".";
+            if (AutoRun)
+                _pendingAutoRun = true;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Auto-start only on the first interactive render (never during prerender), and only if we
+        // have a CV to run with.
+        if (firstRender && _pendingAutoRun && !_running)
+        {
+            _pendingAutoRun = false;
+            if (string.IsNullOrWhiteSpace(_resume))
+                _recentStatus = "Loaded the search — add your CV, then Find jobs.";
+            else
+                await StartAsync();
+        }
     }
 
     private async Task RefreshRecentAsync() =>
@@ -340,6 +419,15 @@
         }
     }
 
+    private void ApplyPinned(PersistedRun run)
+    {
+        if (run.Inputs is { } inputs)
+        {
+            ApplyInputs(inputs);
+            _recentStatus = $"Loaded \"{run.Title}\" — tweak anything, then Find jobs.";
+        }
+    }
+
     private void ApplyInputs(SearchInputs inputs)
     {
         _selectedRoles = inputs.Roles ?? [];
@@ -352,6 +440,9 @@
         _salaryMax = inputs.SalaryMax;
         _currency = string.IsNullOrWhiteSpace(inputs.Currency) ? "USD" : inputs.Currency;
         _otherPreferences = inputs.Other ?? string.Empty;
+        _selectedSources.Clear();
+        foreach (var source in inputs.Sources ?? [])
+            _selectedSources.Add(source);
     }
 
     private SearchInputs CurrentInputs() => new(
@@ -362,7 +453,8 @@
         SalaryMin: _salaryMin,
         SalaryMax: _salaryMax,
         Currency: _currency,
-        Other: _otherPreferences.Trim());
+        Other: _otherPreferences.Trim(),
+        Sources: SourceOptions.Keys.Where(_selectedSources.Contains).ToArray());
 
     /// <summary>A short, scannable title summarising the key search points.</summary>
     private static string BuildTitle(SearchInputs i)
@@ -413,6 +505,26 @@
             _workingStyles.Remove(style);
     }
 
+    private void ToggleSource(string source, bool selected)
+    {
+        if (selected)
+            _selectedSources.Add(source);
+        else
+            _selectedSources.Remove(source);
+    }
+
+    /// <summary>Maps the selected sources to Tavily include-domains. Empty = search the whole web.</summary>
+    private IReadOnlyList<string> SelectedDomains()
+    {
+        if (_selectedSources.Count == 0 || _selectedSources.Contains(AnywhereSource))
+            return Array.Empty<string>();
+
+        return _selectedSources
+            .Select(s => SourceOptions.GetValueOrDefault(s, string.Empty))
+            .Where(d => !string.IsNullOrEmpty(d))
+            .ToArray();
+    }
+
     /// <summary>Composes the structured inputs into a clear preferences block the Coordinator parses.</summary>
     private string BuildPreferences()
     {
@@ -443,6 +555,8 @@
             lines.Add($"Expected salary: {range} {_currency} per year");
         }
 
+        if (_selectedSources.Count > 0)
+            lines.Add($"Preferred job sites: {string.Join(", ", _selectedSources)}");
         if (!string.IsNullOrWhiteSpace(_otherPreferences))
             lines.Add($"Other preferences: {_otherPreferences.Trim()}");
 
@@ -477,9 +591,16 @@
             // Non-fatal: a failed save shouldn't block the hunt.
         }
 
+        var domains = SelectedDomains();
+        // Give each selected site room to contribute: scale the target up with the number of sources.
+        var maxResults = domains.Count > 1
+            ? Math.Min(20, JobHuntConfig.Default.MaxResults + 3 * (domains.Count - 1))
+            : JobHuntConfig.Default.MaxResults;
+        var config = JobHuntConfig.Default with { IncludeDomains = domains, MaxResults = maxResults };
+
         try
         {
-            var (_, events) = JobHunt.Start(_resume, _lastPreferences, ct: _cts.Token);
+            var (_, events) = JobHunt.Start(_resume, _lastPreferences, config, _cts.Token);
 
             await foreach (var evt in events.WithCancellation(_cts.Token))
             {
@@ -538,7 +659,12 @@
                 break;
 
             case JobsFoundEvent e:
-                _activity.Add(new ActivityItem("🔎", $"Found {e.Postings.Count} postings", string.Empty));
+                var bySource = e.Postings
+                    .GroupBy(p => SourceHost(p.Url))
+                    .OrderByDescending(g => g.Count())
+                    .Select(g => $"{g.Key}: {g.Count()}");
+                _activity.Add(new ActivityItem(
+                    "🔎", $"Found {e.Postings.Count} postings", string.Join(" · ", bySource)));
                 break;
 
             case JobMatchedEvent e:
@@ -594,6 +720,8 @@
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max] + "…";
+
+    private static string SourceHost(string? url) => SourceHostUtil.From(url);
 
     public void Dispose() => _cts?.Cancel();
 

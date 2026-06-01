@@ -16,12 +16,16 @@ public sealed class SearchAgent(IAgentRunner runner) : ISearchAgent
 {
     private const string SystemPrompt =
         """
-        You are a job-sourcing agent. Use the Web.search_web tool to find real, currently-open job
-        postings that match the candidate's criteria. Run several focused searches (vary role,
-        location and seniority). Then return ONLY a JSON array of the best distinct postings, each:
+        You are a job-sourcing agent. Find real, currently-open job postings that match the
+        candidate's criteria using the available tools:
+        - Web.search_job_board — a structured job board; prefer it for concrete listings. If it reports
+          it is unavailable, just use web search instead.
+        - Web.search_web — general web search across the selected job sites.
+        Run several focused searches (vary role, location and seniority). Then return ONLY a JSON array
+        of the best distinct postings, each:
         { "title": string, "company": string, "location": string, "url": string, "summary": string }
         The "summary" is a 1-2 sentence description of the role. Do not invent postings or URLs; only
-        include results grounded in the search tool output. Return at most the requested number.
+        include results grounded in the tool output. Return at most the requested number.
         """;
 
     public async Task<IReadOnlyList<JobPosting>> FindJobsAsync(

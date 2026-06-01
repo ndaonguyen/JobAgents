@@ -13,6 +13,7 @@ public sealed class AgentRunContext
 {
     private static readonly AsyncLocal<RunId?> _runId = new();
     private static readonly AsyncLocal<AgentId?> _agentId = new();
+    private static readonly AsyncLocal<IReadOnlyList<string>?> _includeDomains = new();
 
     public RunId? CurrentRun
     {
@@ -24,6 +25,13 @@ public sealed class AgentRunContext
     {
         get => _agentId.Value;
         set => _agentId.Value = value;
+    }
+
+    /// <summary>Domains to restrict web search to for this run (empty = search the whole web).</summary>
+    public IReadOnlyList<string> IncludeDomains
+    {
+        get => _includeDomains.Value ?? Array.Empty<string>();
+        set => _includeDomains.Value = value;
     }
 
     public void Set(RunId runId, AgentId agentId)

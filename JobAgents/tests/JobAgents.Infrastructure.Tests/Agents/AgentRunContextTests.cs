@@ -30,4 +30,19 @@ public class AgentRunContextTests
             ("run-3", "resume-match-3"),
         });
     }
+
+    [Fact]
+    public async Task IncludeDomains_set_on_the_run_flow_down_to_child_work()
+    {
+        var context = new AgentRunContext();
+        context.IncludeDomains = ["itviec.com", "linkedin.com"];
+
+        // A child task (as the search plugin invocation effectively is) inherits the domains.
+        var seen = await Task.Run(() =>
+        {
+            return context.IncludeDomains;
+        });
+
+        seen.Should().BeEquivalentTo("itviec.com", "linkedin.com");
+    }
 }

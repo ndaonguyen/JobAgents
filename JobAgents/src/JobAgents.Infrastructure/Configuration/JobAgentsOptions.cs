@@ -7,6 +7,7 @@ public sealed class JobAgentsOptions
 
     public OpenAiOptions OpenAi { get; set; } = new();
     public TavilyOptions Tavily { get; set; } = new();
+    public JoobleOptions Jooble { get; set; } = new();
     public JobHuntOptions JobHunt { get; set; } = new();
 }
 
@@ -20,6 +21,13 @@ public sealed class TavilyOptions
 {
     public string ApiKey { get; set; } = string.Empty;
     public string BaseUrl { get; set; } = "https://api.tavily.com";
+}
+
+public sealed class JoobleOptions
+{
+    /// <summary>Optional. When empty, the Jooble job-board tool reports itself as unavailable.</summary>
+    public string ApiKey { get; set; } = string.Empty;
+    public string BaseUrl { get; set; } = "https://jooble.org/api";
 }
 
 public sealed class JobHuntOptions

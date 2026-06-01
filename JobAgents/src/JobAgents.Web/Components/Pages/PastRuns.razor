@@ -1,9 +1,12 @@
 @page "/past-runs"
+@rendermode InteractiveServer
 @inject RunStore Store
+@inject NavigationManager Nav
 
 <PageTitle>Past Runs · JobAgents</PageTitle>
 
 <h1>Past Runs</h1>
+<p class="text-muted">Pin the searches you reuse, rename them, or remove ones you no longer need.</p>
 
 @if (_runs is null)
 {
@@ -15,31 +18,90 @@ else if (_runs.Count == 0)
 }
 else
 {
+    <div class="d-flex gap-3 align-items-center mb-2 flex-wrap">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="pinnedOnly" @bind="_pinnedOnly" />
+            <label class="form-check-label" for="pinnedOnly">Pinned only</label>
+        </div>
+        <input class="form-control form-control-sm" style="max-width: 260px;"
+               placeholder="Search title…" @bind="_search" @bind:event="oninput" />
+
+        <div class="ms-auto d-flex gap-2 align-items-center">
+            <a class="btn btn-sm btn-outline-primary" href="/export/runs">Export</a>
+            @if (_confirmClearAll)
+            {
+                <span class="small text-danger">Delete all @_runs.Count runs?</span>
+                <button class="btn btn-sm btn-danger" @onclick="ClearAllAsync">Yes, clear all</button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="() => _confirmClearAll = false">Cancel</button>
+            }
+            else
+            {
+                <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmClearAll = true">Clear all</button>
+            }
+        </div>
+    </div>
+
     <table class="table table-sm align-middle">
         <thead>
             <tr>
+                <th style="width: 1%"></th>
                 <th>When (UTC)</th>
                 <th>Search</th>
                 <th>Top matches</th>
                 <th>Cost</th>
-                <th></th>
+                <th class="text-end">Actions</th>
             </tr>
         </thead>
         <tbody>
-            @foreach (var run in _runs)
+            @foreach (var run in Filtered())
             {
                 <tr>
+                    <td>
+                        <button class="btn btn-sm btn-link p-0 @(run.Pinned ? "text-warning" : "text-muted")"
+                                title="@(run.Pinned ? "Unpin" : "Pin to top")"
+                                @onclick="() => TogglePinAsync(run)">
+                            @(run.Pinned ? "★" : "☆")
+                        </button>
+                    </td>
                     <td>@run.CompletedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
                     <td class="small">
-                        <strong>@(string.IsNullOrWhiteSpace(run.Title) ? "Job search" : run.Title)</strong>
+                        @if (_renamingId == run.RunId)
+                        {
+                            <div class="input-group input-group-sm" style="max-width: 320px;">
+                                <input class="form-control" @bind="_renameValue" @bind:event="oninput" />
+                                <button class="btn btn-primary" @onclick="SaveRenameAsync">Save</button>
+                                <button class="btn btn-outline-secondary" @onclick="() => _renamingId = null">Cancel</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <strong>@(string.IsNullOrWhiteSpace(run.Title) ? "Job search" : run.Title)</strong>
+                        }
                     </td>
                     <td>@run.Result.Dossiers.Count</td>
                     <td>@(run.EstimatedCostUsd?.ToString("$0.0000") ?? "—")</td>
-                    <td>
+                    <td class="text-end text-nowrap">
+                        @if (run.Inputs is not null)
+                        {
+                            <button class="btn btn-sm btn-success" @onclick="() => RunAgain(run)"
+                                    title="Open the home page pre-filled with this search and start it">
+                                Run again
+                            </button>
+                        }
                         <button class="btn btn-sm btn-outline-secondary"
                                 @onclick="() => _selected = (_selected?.RunId == run.RunId ? null : run)">
                             @(_selected?.RunId == run.RunId ? "Hide" : "View")
                         </button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => BeginRename(run)">Rename</button>
+                        @if (_confirmDeleteId == run.RunId)
+                        {
+                            <button class="btn btn-sm btn-danger" @onclick="() => DeleteAsync(run)">Delete?</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => _confirmDeleteId = null">No</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => _confirmDeleteId = run.RunId">Delete</button>
+                        }
                     </td>
                 </tr>
             }
@@ -59,9 +121,62 @@ else
 @code {
     private IReadOnlyList<PersistedRun>? _runs;
     private PersistedRun? _selected;
+    private string? _renamingId;
+    private string _renameValue = string.Empty;
+    private string? _confirmDeleteId;
+    private bool _pinnedOnly;
+    private string _search = string.Empty;
+    private bool _confirmClearAll;
 
-    protected override async Task OnInitializedAsync() => _runs = await Store.LoadAllAsync();
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
 
-    private static string Truncate(string value, int max) =>
-        value.Length <= max ? value : value[..max] + "…";
+    private IEnumerable<PersistedRun> Filtered() =>
+        (_runs ?? Array.Empty<PersistedRun>()).Where(r =>
+            (!_pinnedOnly || r.Pinned) &&
+            (string.IsNullOrWhiteSpace(_search) ||
+             (r.Title ?? string.Empty).Contains(_search, StringComparison.OrdinalIgnoreCase)));
+
+    private void RunAgain(PersistedRun run) =>
+        Nav.NavigateTo($"/?continue={Uri.EscapeDataString(run.RunId)}&run=true");
+
+    private async Task ClearAllAsync()
+    {
+        await Store.DeleteAllAsync();
+        _confirmClearAll = false;
+        _selected = null;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync() => _runs = await Store.LoadAllAsync();
+
+    private async Task TogglePinAsync(PersistedRun run)
+    {
+        await Store.SetPinnedAsync(run.RunId, !run.Pinned);
+        await ReloadAsync();
+    }
+
+    private void BeginRename(PersistedRun run)
+    {
+        _renamingId = run.RunId;
+        _renameValue = run.Title;
+        _confirmDeleteId = null;
+    }
+
+    private async Task SaveRenameAsync()
+    {
+        if (_renamingId is { } id && !string.IsNullOrWhiteSpace(_renameValue))
+            await Store.RenameAsync(id, _renameValue.Trim());
+
+        _renamingId = null;
+        await ReloadAsync();
+    }
+
+    private async Task DeleteAsync(PersistedRun run)
+    {
+        await Store.DeleteAsync(run.RunId);
+        _confirmDeleteId = null;
+        if (_selected?.RunId == run.RunId)
+            _selected = null;
+        await ReloadAsync();
+    }
 }

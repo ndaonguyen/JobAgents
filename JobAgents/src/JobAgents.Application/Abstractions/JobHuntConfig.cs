@@ -13,7 +13,8 @@ public sealed record JobHuntConfig(
     string? InterviewPrepModel = null,
     int MaxResults = 8,
     int MaxFanOutConcurrency = 3,
-    int TopMatchesToExpand = 3)
+    int TopMatchesToExpand = 3,
+    IReadOnlyList<string>? IncludeDomains = null)
 {
     public static JobHuntConfig Default { get; } = new();
 }

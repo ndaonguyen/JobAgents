@@ -12,10 +12,11 @@ public sealed record SearchInputs(
     int? SalaryMin,
     int? SalaryMax,
     string Currency,
-    string Other)
+    string Other,
+    string[]? Sources = null)
 {
     public static SearchInputs Empty { get; } =
-        new([], [], [], string.Empty, null, null, "USD", string.Empty);
+        new([], [], [], string.Empty, null, null, "USD", string.Empty, []);
 }
 
 /// <summary>A persisted job-hunt run, appended to a daily JSONL file and listed on /past-runs.</summary>
@@ -89,6 +90,24 @@ public sealed class RunStore(string directory)
     /// <summary>Deletes the run with the given id.</summary>
     public Task DeleteAsync(string runId, CancellationToken ct = default) =>
         MutateAsync(run => run.RunId == runId ? null : run, ct);
+
+    /// <summary>Deletes every saved run.</summary>
+    public async Task DeleteAllAsync(CancellationToken ct = default)
+    {
+        if (!Directory.Exists(directory))
+            return;
+
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, "ui-*.jsonl"))
+                File.Delete(file);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
 
     /// <summary>Renames the run's title.</summary>
     public Task RenameAsync(string runId, string title, CancellationToken ct = default) =>

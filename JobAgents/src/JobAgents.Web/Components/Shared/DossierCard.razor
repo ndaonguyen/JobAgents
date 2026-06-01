@@ -5,6 +5,10 @@
         <div>
             <strong>@Dossier.Match.Posting.Title</strong>
             <span class="text-muted">@Dossier.Match.Posting.Company · @Dossier.Match.Posting.Location</span>
+            @if (!string.IsNullOrWhiteSpace(Dossier.Match.Posting.Url))
+            {
+                <span class="badge bg-light text-dark border ms-1">@SourceHostUtil.From(Dossier.Match.Posting.Url)</span>
+            }
         </div>
         <span class="badge bg-primary">Fit @Dossier.Match.Score/100</span>
     </div>
