@@ -18,7 +18,8 @@ public sealed record JobHuntConfig(
     IReadOnlyList<string>? IncludeDomains = null,
     string? TimeRange = null,
     string? StartDate = null,
-    string? EndDate = null)
+    string? EndDate = null,
+    bool OpenOnly = true)
 {
     public static JobHuntConfig Default { get; } = new();
 }

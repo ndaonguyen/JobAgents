@@ -26,6 +26,15 @@ public sealed class SearchAgent(IAgentRunner runner) : ISearchAgent
         - Use country-level location terms when a city yields little (e.g. "Vietnam" as well as
           "Ho Chi Minh City" / "Hà Nội").
 
+        STRICT FILTERS — apply before returning:
+        - LOCATION: only include postings located in the requested location — the city itself, its
+          metro area, or its country — OR explicitly Remote when remote work is acceptable. DISCARD
+          postings in a different country/region (e.g. do not return US roles for a Ho Chi Minh City
+          search). Always include the target location in your search queries.
+        - OPEN ONLY (when requested): only include postings that are still open and accepting
+          applications. DISCARD anything showing "No longer accepting applications", "position
+          closed/filled", "applications closed", or that is expired.
+
         Prefer recently-posted roles; skip listings that are clearly expired or stale.
 
         Then return ONLY a JSON array of the best DISTINCT postings (dedupe by company+title), each:
@@ -44,10 +53,11 @@ public sealed class SearchAgent(IAgentRunner runner) : ISearchAgent
             $"""
             Find up to {config.MaxResults} job postings matching:
             - Roles: {Join(criteria.Roles)}
-            - Locations: {Join(criteria.Locations)}
+            - Locations: {Join(criteria.Locations)} (MUST match — discard postings elsewhere)
             - Seniority: {criteria.Seniority}
             - Must-have skills: {Join(criteria.MustHaveSkills)}
-            - Remote only: {criteria.RemoteOnly}
+            - Remote acceptable: {criteria.RemoteOnly}
+            {(config.OpenOnly ? "- Only roles still OPEN and accepting applications; discard closed/expired ones." : string.Empty)}
             """;
 
         var result = await runner.RunAsync(
@@ -55,7 +65,24 @@ public sealed class SearchAgent(IAgentRunner runner) : ISearchAgent
             SystemPrompt, userPrompt, config.SearchModel, useTools: true, ct);
 
         var postings = AgentJson.TryParse<List<JobPosting>>(result.Text) ?? [];
+
+        // Safety net: drop anything that still looks closed even if the model included it.
+        if (config.OpenOnly)
+            postings = postings.Where(p => !LooksClosed(p)).ToList();
+
         return postings.Take(config.MaxResults).ToList();
+    }
+
+    private static readonly string[] ClosedMarkers =
+    [
+        "no longer accepting", "no longer available", "position closed", "position filled",
+        "applications closed", "closed for applications", "this job has expired", "job expired",
+    ];
+
+    private static bool LooksClosed(JobPosting posting)
+    {
+        var text = $"{posting.Title} {posting.Summary}".ToLowerInvariant();
+        return ClosedMarkers.Any(text.Contains);
     }
 
     private static string Join(IReadOnlyList<string> values) =>
