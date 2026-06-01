@@ -6,6 +6,7 @@
 @inject RunStore Store
 @inject ResumeTextExtractor ResumeExtractor
 @inject ProfileStore Profile
+@inject IMatchExpander Expander
 
 <PageTitle>JobAgents</PageTitle>
 
@@ -85,7 +86,22 @@
                     }
                     @if (!string.IsNullOrWhiteSpace(_resume))
                     {
-                        <textarea class="form-control mt-2" rows="6" readonly>@_resume</textarea>
+                        @if (_editingUpload)
+                        {
+                            <textarea class="form-control mt-2" rows="12" @bind="_resume" @bind:event="oninput"></textarea>
+                            <button type="button" class="btn btn-sm btn-outline-secondary mt-1"
+                                    @onclick="() => _editingUpload = false">Done editing</button>
+                        }
+                        else
+                        {
+                            <div class="border rounded p-2 mt-2 bg-light resume-preview"
+                                 style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem;">@_resume</div>
+                            <div class="d-flex justify-content-between">
+                                <span class="form-text">Extracted text preview.</span>
+                                <button type="button" class="btn btn-sm btn-link p-0"
+                                        @onclick="() => _editingUpload = true">Edit extracted text</button>
+                            </div>
+                        }
                     }
                 }
 
@@ -111,22 +127,44 @@
 
                 <div class="row g-2">
                     <div class="col-sm-6">
-                        <label class="form-label small mb-0">Roles <span class="text-muted">(pick one or more)</span></label>
-                        <select class="form-select" multiple size="5" @bind="_selectedRoles">
+                        <label class="form-label small mb-0 d-flex justify-content-between">
+                            <span>Roles <span class="text-muted">(pick any)</span></span>
+                            <span>
+                                <a role="button" class="link-secondary me-2" @onclick="() => SetAllRoles(true)">all</a>
+                                <a role="button" class="link-secondary" @onclick="() => SetAllRoles(false)">clear</a>
+                            </span>
+                        </label>
+                        <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
                             @foreach (var role in RoleOptions)
                             {
-                                <option value="@role">@role</option>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="role-@role"
+                                           checked="@_selectedRoles.Contains(role)"
+                                           @onchange="e => ToggleRole(role, (bool)e.Value!)" />
+                                    <label class="form-check-label" for="role-@role">@role</label>
+                                </div>
                             }
-                        </select>
+                        </div>
                     </div>
                     <div class="col-sm-6">
-                        <label class="form-label small mb-0">Languages / tech</label>
-                        <select class="form-select" multiple size="5" @bind="_selectedLanguages">
+                        <label class="form-label small mb-0 d-flex justify-content-between">
+                            <span>Languages / tech <span class="text-muted">(pick any)</span></span>
+                            <span>
+                                <a role="button" class="link-secondary me-2" @onclick="() => SetAllLanguages(true)">all</a>
+                                <a role="button" class="link-secondary" @onclick="() => SetAllLanguages(false)">clear</a>
+                            </span>
+                        </label>
+                        <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
                             @foreach (var lang in LanguageOptions)
                             {
-                                <option value="@lang">@lang</option>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="lang-@lang"
+                                           checked="@_selectedLanguages.Contains(lang)"
+                                           @onchange="e => ToggleLanguage(lang, (bool)e.Value!)" />
+                                    <label class="form-check-label" for="lang-@lang">@lang</label>
+                                </div>
                             }
-                        </select>
+                        </div>
                     </div>
                 </div>
 
@@ -180,6 +218,15 @@
                             }
                         </select>
                     </div>
+                </div>
+
+                <div class="mt-2">
+                    <label class="form-label small mb-0">
+                        Minimum fit score: <strong>@_minMatchScore</strong>/100
+                        <span class="text-muted">(only show matches at or above this)</span>
+                    </label>
+                    <input type="range" class="form-range" min="0" max="100" step="5"
+                           @bind="_minMatchScore" @bind:event="oninput" />
                 </div>
 
                 <div class="mt-2">
@@ -239,9 +286,23 @@
         else
         {
             <div class="alert alert-info">@_result.Summary</div>
-            @foreach (var dossier in _result.Dossiers)
+            <p class="text-muted small">
+                @_dossiers.Count match@(_dossiers.Count == 1 ? "" : "es") scoring ≥ @_lastMinScore/100.
+                Company, salary &amp; interview prep are researched for the top matches; expand any other
+                card to research it on demand.
+            </p>
+            @foreach (var dossier in _dossiers.Take(_visibleCount))
             {
-                <DossierCard Dossier="dossier" />
+                var key = DossierKey(dossier);
+                <DossierCard Dossier="dossier" Expanding="_expanding.Contains(key)"
+                             OnExpand="() => ExpandDossierAsync(dossier)" />
+            }
+            @if (_dossiers.Count > _visibleCount)
+            {
+                <button class="btn btn-outline-primary w-100"
+                        @onclick="() => _visibleCount += PageSize">
+                    Load more (@(_dossiers.Count - _visibleCount) remaining)
+                </button>
             }
         }
     </div>
@@ -284,13 +345,14 @@
     private ResumeInput _resumeMode = ResumeInput.Paste;
     private string? _uploadStatus;
     private bool _uploadFailed;
+    private bool _editingUpload;
     private bool _savedCvExists;
     private string? _profileStatus;
     private bool _running;
 
     // Structured preferences.
-    private string[] _selectedRoles = [];
-    private string[] _selectedLanguages = [];
+    private readonly HashSet<string> _selectedRoles = new();
+    private readonly HashSet<string> _selectedLanguages = new();
     private readonly HashSet<string> _workingStyles = new();
     private string _location = string.Empty;
     private int? _salaryMin;
@@ -298,6 +360,8 @@
     private string _currency = "USD";
     private string _otherPreferences = string.Empty;
     private readonly HashSet<string> _selectedSources = new();
+    private int _minMatchScore = 60;
+    private int _lastMinScore = 60;
     private string _lastPreferences = string.Empty;
     private SearchInputs _lastInputs = SearchInputs.Empty;
     private string _lastTitle = string.Empty;
@@ -316,6 +380,11 @@
     private decimal? _cost;
     private JobHuntResult? _result;
 
+    private const int PageSize = 5;
+    private int _visibleCount = PageSize;
+    private List<JobDossier> _dossiers = new();
+    private readonly HashSet<string> _expanding = new();
+
     private readonly List<ActivityItem> _activity = new();
     private readonly Dictionary<string, ActivityItem> _streaming = new();
     private CancellationTokenSource? _cts;
@@ -324,6 +393,7 @@
 
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
+        _editingUpload = false;
         var file = e.File;
         if (!ResumeExtractor.IsSupported(file.Name))
         {
@@ -430,8 +500,12 @@
 
     private void ApplyInputs(SearchInputs inputs)
     {
-        _selectedRoles = inputs.Roles ?? [];
-        _selectedLanguages = inputs.Languages ?? [];
+        _selectedRoles.Clear();
+        foreach (var role in inputs.Roles ?? [])
+            _selectedRoles.Add(role);
+        _selectedLanguages.Clear();
+        foreach (var lang in inputs.Languages ?? [])
+            _selectedLanguages.Add(lang);
         _workingStyles.Clear();
         foreach (var style in inputs.WorkingStyles ?? [])
             _workingStyles.Add(style);
@@ -443,18 +517,20 @@
         _selectedSources.Clear();
         foreach (var source in inputs.Sources ?? [])
             _selectedSources.Add(source);
+        _minMatchScore = Math.Clamp(inputs.MinMatchScore, 0, 100);
     }
 
     private SearchInputs CurrentInputs() => new(
-        Roles: _selectedRoles,
-        Languages: _selectedLanguages,
+        Roles: RoleOptions.Where(_selectedRoles.Contains).ToArray(),
+        Languages: LanguageOptions.Where(_selectedLanguages.Contains).ToArray(),
         WorkingStyles: WorkingStyleOptions.Where(_workingStyles.Contains).ToArray(),
         Location: _location.Trim(),
         SalaryMin: _salaryMin,
         SalaryMax: _salaryMax,
         Currency: _currency,
         Other: _otherPreferences.Trim(),
-        Sources: SourceOptions.Keys.Where(_selectedSources.Contains).ToArray());
+        Sources: SourceOptions.Keys.Where(_selectedSources.Contains).ToArray(),
+        MinMatchScore: _minMatchScore);
 
     /// <summary>A short, scannable title summarising the key search points.</summary>
     private static string BuildTitle(SearchInputs i)
@@ -497,6 +573,38 @@
         _profileStatus = "Saved CV removed.";
     }
 
+    private void SetAllRoles(bool select)
+    {
+        _selectedRoles.Clear();
+        if (select)
+            foreach (var role in RoleOptions)
+                _selectedRoles.Add(role);
+    }
+
+    private void SetAllLanguages(bool select)
+    {
+        _selectedLanguages.Clear();
+        if (select)
+            foreach (var lang in LanguageOptions)
+                _selectedLanguages.Add(lang);
+    }
+
+    private void ToggleRole(string role, bool selected)
+    {
+        if (selected)
+            _selectedRoles.Add(role);
+        else
+            _selectedRoles.Remove(role);
+    }
+
+    private void ToggleLanguage(string lang, bool selected)
+    {
+        if (selected)
+            _selectedLanguages.Add(lang);
+        else
+            _selectedLanguages.Remove(lang);
+    }
+
     private void ToggleWorkingStyle(string style, bool selected)
     {
         if (selected)
@@ -530,10 +638,10 @@
     {
         var lines = new List<string>();
 
-        if (_selectedRoles.Length > 0)
-            lines.Add($"Target roles: {string.Join(", ", _selectedRoles)}");
-        if (_selectedLanguages.Length > 0)
-            lines.Add($"Languages / tech: {string.Join(", ", _selectedLanguages)}");
+        if (_selectedRoles.Count > 0)
+            lines.Add($"Target roles: {string.Join(", ", RoleOptions.Where(_selectedRoles.Contains))}");
+        if (_selectedLanguages.Count > 0)
+            lines.Add($"Languages / tech: {string.Join(", ", LanguageOptions.Where(_selectedLanguages.Contains))}");
         if (_workingStyles.Count > 0)
         {
             // Preserve the canonical Onsite/Hybrid/Remote ordering.
@@ -572,6 +680,9 @@
         _error = null;
         _cost = null;
         _result = null;
+        _dossiers = new();
+        _expanding.Clear();
+        _visibleCount = PageSize;
         _activity.Clear();
         _streaming.Clear();
         _cts = new CancellationTokenSource();
@@ -596,7 +707,13 @@
         var maxResults = domains.Count > 1
             ? Math.Min(20, JobHuntConfig.Default.MaxResults + 3 * (domains.Count - 1))
             : JobHuntConfig.Default.MaxResults;
-        var config = JobHuntConfig.Default with { IncludeDomains = domains, MaxResults = maxResults };
+        _lastMinScore = _minMatchScore;
+        var config = JobHuntConfig.Default with
+        {
+            IncludeDomains = domains,
+            MaxResults = maxResults,
+            MinMatchScore = _minMatchScore,
+        };
 
         try
         {
@@ -609,6 +726,7 @@
                 if (evt is AgentFinishedEvent finished && finished.AgentId == AgentId.System)
                 {
                     _result = TryParseResult(finished.FinalText);
+                    _dossiers = _result?.Dossiers.ToList() ?? new();
                     _cost = finished.EstimatedCostUsd;
                     await PersistAsync(finished);
                 }
@@ -722,6 +840,39 @@
         value.Length <= max ? value : value[..max] + "…";
 
     private static string SourceHost(string? url) => SourceHostUtil.From(url);
+
+    private static string DossierKey(JobDossier d) =>
+        string.IsNullOrWhiteSpace(d.Match.Posting.Url)
+            ? $"{d.Match.Posting.Title}|{d.Match.Posting.Company}"
+            : d.Match.Posting.Url;
+
+    private async Task ExpandDossierAsync(JobDossier dossier)
+    {
+        if (_result is null)
+            return;
+
+        var key = DossierKey(dossier);
+        if (!_expanding.Add(key))
+            return; // already in progress
+
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var full = await Expander.ExpandAsync(dossier.Match, _result.Criteria, JobHuntConfig.Default);
+            var index = _dossiers.FindIndex(d => DossierKey(d) == key);
+            if (index >= 0)
+                _dossiers[index] = full;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Couldn't research that role: {ex.Message}";
+        }
+        finally
+        {
+            _expanding.Remove(key);
+            await InvokeAsync(StateHasChanged);
+        }
+    }
 
     public void Dispose() => _cts?.Cancel();
 

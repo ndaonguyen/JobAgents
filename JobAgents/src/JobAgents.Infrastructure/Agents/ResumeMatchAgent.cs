@@ -16,16 +16,21 @@ public sealed class ResumeMatchAgent(IAgentRunner runner) : IResumeMatchAgent
 {
     private const string SystemPrompt =
         """
-        You are a resume-matching agent. Given a candidate's resume and ONE job posting, assess fit.
-        Return ONLY a JSON object:
+        You are a resume-matching agent. Given a candidate's resume and ONE job posting, assess fit
+        honestly. Return ONLY a JSON object:
         {
           "score": integer 0-100,
           "matchedSkills": string[],
           "gaps": string[],
           "rationale": string
         }
-        "score" reflects how well the candidate fits this role. "gaps" are requirements the candidate
-        appears to lack. Be honest and specific; base everything on the resume and posting provided.
+        Scoring guide: 85-100 strong fit, 70-84 good, 60-69 borderline, below 60 weak.
+        - "matchedSkills": concrete skills/experience from the resume that the posting asks for.
+        - "gaps": specific requirements the candidate appears to lack or under-demonstrate.
+        - "rationale": 2-4 sentences citing SPECIFIC evidence — name the candidate's relevant
+          experience and the posting's key requirements, and explain seniority/domain fit. Avoid
+          generic filler; reference real details from both texts.
+        Base everything only on the resume and posting provided; do not invent experience.
         """;
 
     private sealed record MatchDto(int Score, List<string>? MatchedSkills, List<string>? Gaps, string? Rationale);
@@ -48,7 +53,7 @@ public sealed class ResumeMatchAgent(IAgentRunner runner) : IResumeMatchAgent
 
         var result = await runner.RunAsync(
             runId, AgentId.ResumeMatch(index), "Resume Matching",
-            SystemPrompt, userPrompt, config.ResumeMatchModel, useTools: false, ct);
+            SystemPrompt, userPrompt, config.ResumeMatchModel, useTools: false, ct, jsonMode: true);
 
         var dto = AgentJson.TryParse<MatchDto>(result.Text);
         return new JobMatch(

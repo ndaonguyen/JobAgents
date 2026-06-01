@@ -45,7 +45,7 @@ public sealed class InterviewPrepAgent(IAgentRunner runner) : IInterviewPrepAgen
 
         var result = await runner.RunAsync(
             runId, AgentId.InterviewPrep(index), "Interview Preparation",
-            SystemPrompt, userPrompt, config.InterviewPrepModel, useTools: false, ct);
+            SystemPrompt, userPrompt, config.InterviewPrepModel, useTools: false, ct, jsonMode: true);
 
         var dto = AgentJson.TryParse<PrepDto>(result.Text);
         return new InterviewPrep(

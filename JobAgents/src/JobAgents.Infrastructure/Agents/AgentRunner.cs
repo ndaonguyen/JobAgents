@@ -26,7 +26,8 @@ public interface IAgentRunner
         string userPrompt,
         string? modelOverride,
         bool useTools,
-        CancellationToken ct);
+        CancellationToken ct = default,
+        bool jsonMode = false);
 }
 
 /// <summary>
@@ -49,7 +50,8 @@ public sealed class AgentRunner(
         string userPrompt,
         string? modelOverride,
         bool useTools,
-        CancellationToken ct)
+        CancellationToken ct = default,
+        bool jsonMode = false)
     {
         // Attribute any tool calls fired during this turn to this (run, agent).
         context.Set(runId, agentId);
@@ -66,6 +68,10 @@ public sealed class AgentRunner(
             FunctionChoiceBehavior = useTools ? FunctionChoiceBehavior.Auto() : FunctionChoiceBehavior.None(),
             Temperature = 0.2,
         };
+
+        // Force a valid JSON object from models that support it (used for non-tool structured agents).
+        if (jsonMode)
+            settings.ResponseFormat = "json_object";
 
         await bus.PublishAsync(new AgentStartedEvent(runId, agentId, role, DateTime.UtcNow), ct);
 

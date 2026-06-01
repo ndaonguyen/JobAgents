@@ -13,7 +13,8 @@ public sealed record SearchInputs(
     int? SalaryMax,
     string Currency,
     string Other,
-    string[]? Sources = null)
+    string[]? Sources = null,
+    int MinMatchScore = 60)
 {
     public static SearchInputs Empty { get; } =
         new([], [], [], string.Empty, null, null, "USD", string.Empty, []);

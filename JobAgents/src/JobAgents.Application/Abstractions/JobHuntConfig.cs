@@ -11,9 +11,10 @@ public sealed record JobHuntConfig(
     string? CompanyResearchModel = null,
     string? SalaryAnalysisModel = null,
     string? InterviewPrepModel = null,
-    int MaxResults = 8,
+    int MaxResults = 12,
     int MaxFanOutConcurrency = 3,
     int TopMatchesToExpand = 3,
+    int MinMatchScore = 60,
     IReadOnlyList<string>? IncludeDomains = null)
 {
     public static JobHuntConfig Default { get; } = new();

@@ -13,25 +13,27 @@ namespace JobAgents.Infrastructure.Tests.Agents;
 public class CoordinatorWiringTests
 {
     [Fact]
-    public async Task Pipeline_matches_every_posting_but_only_expands_the_top_N()
+    public async Task Pipeline_returns_all_qualifying_matches_and_expands_only_the_top_N()
     {
         var bus = new ChannelAgentEventBus();
         var runId = new RunId("wiring");
         var config = JobHuntConfig.Default with
         {
-            TopMatchesToExpand = 3,
+            TopMatchesToExpand = 2,
+            MinMatchScore = 60,
             MaxFanOutConcurrency = 2,
             IncludeDomains = ["itviec.com", "linkedin.com"],
         };
         var context = new AgentRunContext();
 
-        var postings = Enumerable.Range(0, 5)
+        // Scores by posting index; only those >= 60 should survive (90, 80, 70, 65 → 4 of 6).
+        var scores = new[] { 90, 80, 70, 50, 40, 65 };
+        var postings = Enumerable.Range(0, scores.Length)
             .Select(i => new JobPosting($"Role {i}", $"Co {i}", "Remote", $"https://x/{i}", "summary"))
             .ToList();
 
         var search = new FakeSearchAgent(postings);
-        // Score ascending with index, so ranking must reorder: posting 4 (score 40) ranks first.
-        var match = new FakeResumeMatchAgent(scoreByIndex: i => i * 10);
+        var match = new FakeResumeMatchAgent(scoreByIndex: i => scores[i]);
         var company = new FakeCompanyAgent();
         var salary = new FakeSalaryAgent();
         var interview = new FakeInterviewAgent();
@@ -44,21 +46,22 @@ public class CoordinatorWiringTests
         await coordinator.RunAsync(new AgentRunRequest(runId, "resume", "prefs"), config);
         var events = await subscription;
 
-        // Search ran once; every posting was matched; only the top 3 were expanded.
+        // Every posting is matched; only the top 2 qualifying matches are expanded.
         search.Calls.Should().Be(1);
-        match.Calls.Should().Be(5);
-        company.Calls.Should().Be(3);
-        salary.Calls.Should().Be(3);
-        interview.Calls.Should().Be(3);
+        match.Calls.Should().Be(6);
+        company.Calls.Should().Be(2);
+        salary.Calls.Should().Be(2);
+        interview.Calls.Should().Be(2);
 
-        events.OfType<JobMatchedEvent>().Should().HaveCount(5);
-        events.OfType<CompanyResearchedEvent>().Should().HaveCount(3);
+        events.OfType<JobMatchedEvent>().Should().HaveCount(6);
 
         var terminal = events.OfType<AgentFinishedEvent>().Single(e => e.AgentId == AgentId.System);
         var result = System.Text.Json.JsonSerializer.Deserialize<JobHuntResult>(terminal.FinalText, AgentJson.Options)!;
-        result.Dossiers.Should().HaveCount(3);
-        result.Dossiers.Select(d => d.Match.Score).Should().BeInDescendingOrder();
-        result.Dossiers[0].Match.Score.Should().Be(40);
+
+        // All 4 matches >= 60 are returned, ranked; only the top 2 carry expansion data.
+        result.Dossiers.Select(d => d.Match.Score).Should().Equal(90, 80, 70, 65);
+        result.Dossiers.Take(2).Should().OnlyContain(d => d.Company != null);
+        result.Dossiers.Skip(2).Should().OnlyContain(d => d.Company == null);
     }
 
     private static async Task<List<AgentEvent>> CollectAsync(ChannelAgentEventBus bus, RunId runId)
@@ -75,7 +78,7 @@ public class CoordinatorWiringTests
             """{ "roles": ["dev"], "locations": ["Remote"], "seniority": "Senior", "mustHaveSkills": [], "niceToHaveSkills": [], "remoteOnly": true, "salaryExpectation": null }""";
 
         public Task<AgentResult> RunAsync(RunId runId, AgentId agentId, string role, string systemPrompt,
-            string userPrompt, string? modelOverride, bool useTools, CancellationToken ct)
+            string userPrompt, string? modelOverride, bool useTools, CancellationToken ct = default, bool jsonMode = false)
             => Task.FromResult(new AgentResult(CriteriaJson, AgentUsage.Zero));
     }
 

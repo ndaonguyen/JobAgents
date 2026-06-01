@@ -37,6 +37,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ISalaryAnalysisAgent, SalaryAnalysisAgent>();
         services.AddScoped<IInterviewPrepAgent, InterviewPrepAgent>();
         services.AddScoped<IOrchestrator, Coordinator>();
+        services.AddScoped<IMatchExpander, MatchExpander>();
 
         return services;
     }

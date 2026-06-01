@@ -54,18 +54,26 @@ public sealed class Coordinator(
             },
             ct);
 
-        // 4. Rank and select the top matches to expand.
-        var topMatches = matches
+        // 4. Keep every match that clears the score bar, ranked best-first.
+        var qualifying = matches
+            .Where(m => m.Score >= config.MinMatchScore)
             .OrderByDescending(m => m.Score)
-            .Take(config.TopMatchesToExpand)
             .ToList();
 
-        // 5. Expand each top match: company + salary + interview prep, in parallel.
-        var dossiers = await FanOutAsync(
-            topMatches,
+        // 5. Fully research only the top matches (company + salary + interview prep, in parallel)…
+        var toExpand = qualifying.Take(config.TopMatchesToExpand).ToList();
+        var expanded = await FanOutAsync(
+            toExpand,
             config.MaxFanOutConcurrency,
             async (match, index) => await ExpandAsync(runId, index, match, criteria, config, ct),
             ct);
+
+        // …and include the remaining qualifying matches as match-only dossiers (cheap, no extra agents).
+        var rest = qualifying
+            .Skip(config.TopMatchesToExpand)
+            .Select(m => new JobDossier(m, null, null, null));
+
+        var dossiers = expanded.Concat(rest).ToList();
 
         // 6. Synthesise a short summary.
         var (summary, summaryUsage) = await SynthesiseAsync(runId, criteria, dossiers, config, ct);
@@ -116,7 +124,7 @@ public sealed class Coordinator(
 
         var result = await runner.RunAsync(
             runId: request.RunId, AgentId.Coordinator, "Coordinator",
-            systemPrompt, userPrompt, config.CoordinatorModel, useTools: false, ct);
+            systemPrompt, userPrompt, config.CoordinatorModel, useTools: false, ct, jsonMode: true);
 
         var criteria = AgentJson.TryParse<SearchCriteria>(result.Text) ?? SearchCriteria.Empty;
         return (criteria, result.Usage);
@@ -158,15 +166,16 @@ public sealed class Coordinator(
         RunId runId, SearchCriteria criteria, IReadOnlyList<JobDossier> dossiers, JobHuntConfig config, CancellationToken ct)
     {
         if (dossiers.Count == 0)
-            return ("No matching job postings were found for the given criteria.", AgentUsage.Zero);
+            return ($"No postings scored at or above {config.MinMatchScore}/100 for the given criteria.", AgentUsage.Zero);
 
         const string systemPrompt =
             "You are the coordinator. Write a concise (3-5 sentence) summary of the candidate's best "
             + "job matches and what to focus on next. Plain prose, no JSON.";
 
-        var lines = dossiers.Select(d =>
-            $"- {d.Match.Posting.Title} @ {d.Match.Posting.Company} (fit {d.Match.Score}/100)");
-        var userPrompt = $"Top matches:\n{string.Join('\n', lines)}";
+        var lines = dossiers
+            .Take(8)
+            .Select(d => $"- {d.Match.Posting.Title} @ {d.Match.Posting.Company} (fit {d.Match.Score}/100)");
+        var userPrompt = $"Top matches ({dossiers.Count} total above the bar):\n{string.Join('\n', lines)}";
 
         var result = await runner.RunAsync(
             runId, AgentId.Coordinator, "Coordinator",

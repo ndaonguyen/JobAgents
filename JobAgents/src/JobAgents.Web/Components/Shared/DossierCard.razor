@@ -76,17 +76,37 @@
             </div>
         }
 
-        @if (!string.IsNullOrWhiteSpace(Dossier.Match.Posting.Url))
-        {
-            <a class="btn btn-sm btn-outline-primary mt-2" href="@Dossier.Match.Posting.Url" target="_blank">
-                View posting
-            </a>
-        }
+        <div class="mt-2 d-flex gap-2 align-items-center">
+            @if (!string.IsNullOrWhiteSpace(Dossier.Match.Posting.Url))
+            {
+                <a class="btn btn-sm btn-outline-primary" href="@Dossier.Match.Posting.Url" target="_blank">
+                    View posting
+                </a>
+            }
+            @if (IsMatchOnly && OnExpand.HasDelegate)
+            {
+                @if (Expanding)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                    <span class="text-muted small">Researching company, salary &amp; interview…</span>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-success" @onclick="OnExpand">
+                        Research company, salary &amp; interview
+                    </button>
+                }
+            }
+        </div>
     </div>
 </div>
 
 @code {
     [Parameter, EditorRequired] public required JobDossier Dossier { get; set; }
+    [Parameter] public EventCallback OnExpand { get; set; }
+    [Parameter] public bool Expanding { get; set; }
+
+    private bool IsMatchOnly => Dossier.Company is null && Dossier.Salary is null && Dossier.Interview is null;
 
     private static string FormatSalary(SalaryEstimate s)
     {
