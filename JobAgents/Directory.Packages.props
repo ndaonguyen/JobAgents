@@ -11,6 +11,10 @@
     <PackageVersion Include="Microsoft.SemanticKernel.Agents.Core" Version="1.71.0" />
     <PackageVersion Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.71.0-alpha" />
 
+    <!-- Resume file parsing (PDF + Word) -->
+    <PackageVersion Include="PdfPig" Version="0.1.10" />
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.1.0" />
+
     <!-- Microsoft.Extensions (versions dictated by Semantic Kernel 1.71 transitive deps) -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.2" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.2" />

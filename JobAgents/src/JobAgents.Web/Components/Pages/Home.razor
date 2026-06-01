@@ -4,6 +4,8 @@
 @implements IDisposable
 @inject StartJobHuntUseCase JobHunt
 @inject RunStore Store
+@inject ResumeTextExtractor ResumeExtractor
+@inject ProfileStore Profile
 
 <PageTitle>JobAgents</PageTitle>
 
@@ -15,16 +17,142 @@
 
 <div class="row g-4">
     <div class="col-lg-5">
+        @if (_recent.Count > 0)
+        {
+            <div class="mb-3">
+                <label class="form-label fw-bold">Continue a previous search</label>
+                <select class="form-select" @onchange="OnRecentSelected">
+                    <option value="">— start fresh —</option>
+                    @foreach (var run in _recent)
+                    {
+                        <option value="@run.RunId">@run.Title (@run.CompletedAtUtc.ToString("MM-dd HH:mm"))</option>
+                    }
+                </select>
+                @if (_recentStatus is not null)
+                {
+                    <div class="small text-muted mt-1">@_recentStatus</div>
+                }
+            </div>
+        }
+
         <EditForm Model="this" OnValidSubmit="StartAsync">
             <div class="mb-3">
-                <label class="form-label fw-bold">Resume</label>
-                <textarea class="form-control" rows="10" @bind="_resume"
-                          placeholder="Paste your resume text here..."></textarea>
+                <label class="form-label fw-bold d-block">Resume</label>
+                <div class="btn-group btn-group-sm mb-2" role="group">
+                    <button type="button"
+                            class="btn @(_resumeMode == ResumeInput.Paste ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => _resumeMode = ResumeInput.Paste">
+                        Paste text
+                    </button>
+                    <button type="button"
+                            class="btn @(_resumeMode == ResumeInput.Upload ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => _resumeMode = ResumeInput.Upload">
+                        Upload file
+                    </button>
+                </div>
+
+                @if (_resumeMode == ResumeInput.Paste)
+                {
+                    <textarea class="form-control" rows="10" @bind="_resume"
+                              placeholder="Paste your resume text here..."></textarea>
+                }
+                else
+                {
+                    <InputFile class="form-control" accept=".txt,.md,.pdf,.docx" OnChange="OnFileSelectedAsync" />
+                    <div class="form-text">Supported: PDF, Word (.docx), or plain text (.txt, .md). Max 5&nbsp;MB.</div>
+                    @if (_uploadStatus is not null)
+                    {
+                        <div class="small mt-1 @(_uploadFailed ? "text-danger" : "text-success")">@_uploadStatus</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_resume))
+                    {
+                        <textarea class="form-control mt-2" rows="6" readonly>@_resume</textarea>
+                    }
+                }
+
+                <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            @onclick="SaveCvAsync" disabled="@string.IsNullOrWhiteSpace(_resume)">
+                        💾 Save CV
+                    </button>
+                    @if (_savedCvExists)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="ForgetCvAsync">
+                            🗑 Forget saved CV
+                        </button>
+                    }
+                    @if (_profileStatus is not null)
+                    {
+                        <span class="small text-muted">@_profileStatus</span>
+                    }
+                </div>
             </div>
             <div class="mb-3">
-                <label class="form-label fw-bold">Preferences</label>
-                <textarea class="form-control" rows="3" @bind="_preferences"
-                          placeholder="e.g. Senior backend roles, remote or London, .NET, £90k+"></textarea>
+                <label class="form-label fw-bold d-block">Preferences</label>
+
+                <div class="row g-2">
+                    <div class="col-sm-6">
+                        <label class="form-label small mb-0">Roles <span class="text-muted">(pick one or more)</span></label>
+                        <select class="form-select" multiple size="5" @bind="_selectedRoles">
+                            @foreach (var role in RoleOptions)
+                            {
+                                <option value="@role">@role</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label small mb-0">Languages / tech</label>
+                        <select class="form-select" multiple size="5" @bind="_selectedLanguages">
+                            @foreach (var lang in LanguageOptions)
+                            {
+                                <option value="@lang">@lang</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mt-2">
+                    <label class="form-label small mb-0 d-block">Working style</label>
+                    @foreach (var style in WorkingStyleOptions)
+                    {
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="ws-@style"
+                                   checked="@_workingStyles.Contains(style)"
+                                   @onchange="e => ToggleWorkingStyle(style, (bool)e.Value!)" />
+                            <label class="form-check-label" for="ws-@style">@style</label>
+                        </div>
+                    }
+                </div>
+
+                <div class="row g-2 mt-1 align-items-end">
+                    <div class="col-sm-4">
+                        <label class="form-label small mb-0">Location</label>
+                        <input class="form-control" @bind="_location" placeholder="e.g. London" />
+                    </div>
+                    <div class="col-sm-5">
+                        <label class="form-label small mb-0">Expected salary range</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" @bind="_salaryMin" placeholder="min" min="0" />
+                            <span class="input-group-text">–</span>
+                            <input type="number" class="form-control" @bind="_salaryMax" placeholder="max" min="0" />
+                        </div>
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-0">Currency</label>
+                        <select class="form-select" @bind="_currency">
+                            @foreach (var c in CurrencyOptions)
+                            {
+                                <option value="@c">@c</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mt-2">
+                    <label class="form-label small mb-0">Anything else <span class="text-muted">(optional)</span></label>
+                    <textarea class="form-control" rows="2" @bind="_otherPreferences"
+                              placeholder="e.g. fintech or health domains, no on-call, visa sponsorship"></textarea>
+                </div>
             </div>
             <button type="submit" class="btn btn-primary" disabled="@(_running || string.IsNullOrWhiteSpace(_resume))">
                 @if (_running)
@@ -86,9 +214,50 @@
 </div>
 
 @code {
+    private enum ResumeInput { Paste, Upload }
+
+    private const long MaxUploadBytes = 5 * 1024 * 1024;
+
+    private static readonly string[] RoleOptions =
+    [
+        "Backend Engineer", "Frontend Engineer", "Full-stack Engineer",
+        "Senior Backend Engineer", "Senior Frontend Engineer", "Senior Full-stack Engineer",
+        "Staff Engineer", "Tech Lead", "Engineering Manager",
+        "DevOps / SRE", "Data Engineer", "Machine Learning Engineer",
+    ];
+
+    private static readonly string[] LanguageOptions =
+    [
+        "C#", "Python", "JavaScript", "TypeScript", "Java", "Go", "Rust", "C++", "Ruby", "PHP", "Kotlin", "Swift",
+    ];
+
+    private static readonly string[] WorkingStyleOptions = ["Onsite", "Hybrid", "Remote"];
+    private static readonly string[] CurrencyOptions = ["USD", "GBP", "EUR", "AUD", "NZD", "CAD"];
+
     private string _resume = string.Empty;
-    private string _preferences = string.Empty;
+    private ResumeInput _resumeMode = ResumeInput.Paste;
+    private string? _uploadStatus;
+    private bool _uploadFailed;
+    private bool _savedCvExists;
+    private string? _profileStatus;
     private bool _running;
+
+    // Structured preferences.
+    private string[] _selectedRoles = [];
+    private string[] _selectedLanguages = [];
+    private readonly HashSet<string> _workingStyles = new();
+    private string _location = string.Empty;
+    private int? _salaryMin;
+    private int? _salaryMax;
+    private string _currency = "USD";
+    private string _otherPreferences = string.Empty;
+    private string _lastPreferences = string.Empty;
+    private SearchInputs _lastInputs = SearchInputs.Empty;
+    private string _lastTitle = string.Empty;
+
+    private List<PersistedRun> _recent = new();
+    private string? _recentStatus;
+
     private string? _error;
     private decimal? _cost;
     private JobHuntResult? _result;
@@ -98,6 +267,187 @@
     private CancellationTokenSource? _cts;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (!ResumeExtractor.IsSupported(file.Name))
+        {
+            _uploadFailed = true;
+            _uploadStatus = $"Unsupported file type. Use {string.Join(", ", ResumeTextExtractor.SupportedExtensions)}.";
+            return;
+        }
+
+        try
+        {
+            using var buffer = new MemoryStream();
+            await file.OpenReadStream(MaxUploadBytes).CopyToAsync(buffer);
+            buffer.Position = 0;
+
+            _resume = ResumeExtractor.Extract(file.Name, buffer);
+            if (string.IsNullOrWhiteSpace(_resume))
+            {
+                _uploadFailed = true;
+                _uploadStatus = $"No text could be extracted from {file.Name}.";
+            }
+            else
+            {
+                _uploadFailed = false;
+                _uploadStatus = $"Loaded {file.Name} ({_resume.Length:N0} characters).";
+            }
+        }
+        catch (Exception ex)
+        {
+            _uploadFailed = true;
+            _uploadStatus = $"Couldn't read {file.Name}: {ex.Message}";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var profile = await Profile.LoadAsync();
+        if (profile is not null && !string.IsNullOrWhiteSpace(profile.ResumeText))
+        {
+            _resume = profile.ResumeText;
+            _savedCvExists = true;
+            _profileStatus = $"Loaded your saved CV (updated {profile.UpdatedAtUtc:yyyy-MM-dd}).";
+        }
+
+        await RefreshRecentAsync();
+    }
+
+    private async Task RefreshRecentAsync() =>
+        _recent = (await Store.LoadAllAsync()).Take(10).ToList();
+
+    private void OnRecentSelected(ChangeEventArgs e)
+    {
+        var runId = e.Value as string;
+        if (string.IsNullOrEmpty(runId))
+        {
+            _recentStatus = null;
+            return;
+        }
+
+        var run = _recent.FirstOrDefault(r => r.RunId == runId);
+        if (run?.Inputs is { } inputs)
+        {
+            ApplyInputs(inputs);
+            _recentStatus = $"Loaded \"{run.Title}\" — tweak anything, then Find jobs.";
+        }
+        else
+        {
+            _recentStatus = "That run has no saved inputs to continue from.";
+        }
+    }
+
+    private void ApplyInputs(SearchInputs inputs)
+    {
+        _selectedRoles = inputs.Roles ?? [];
+        _selectedLanguages = inputs.Languages ?? [];
+        _workingStyles.Clear();
+        foreach (var style in inputs.WorkingStyles ?? [])
+            _workingStyles.Add(style);
+        _location = inputs.Location ?? string.Empty;
+        _salaryMin = inputs.SalaryMin;
+        _salaryMax = inputs.SalaryMax;
+        _currency = string.IsNullOrWhiteSpace(inputs.Currency) ? "USD" : inputs.Currency;
+        _otherPreferences = inputs.Other ?? string.Empty;
+    }
+
+    private SearchInputs CurrentInputs() => new(
+        Roles: _selectedRoles,
+        Languages: _selectedLanguages,
+        WorkingStyles: WorkingStyleOptions.Where(_workingStyles.Contains).ToArray(),
+        Location: _location.Trim(),
+        SalaryMin: _salaryMin,
+        SalaryMax: _salaryMax,
+        Currency: _currency,
+        Other: _otherPreferences.Trim());
+
+    /// <summary>A short, scannable title summarising the key search points.</summary>
+    private static string BuildTitle(SearchInputs i)
+    {
+        var parts = new List<string>();
+
+        if (i.Roles.Length > 0)
+            parts.Add(i.Roles.Length == 1 ? i.Roles[0] : $"{i.Roles[0]} +{i.Roles.Length - 1}");
+        if (i.Languages.Length > 0)
+            parts.Add(i.Languages.Length == 1 ? i.Languages[0] : $"{i.Languages[0]} +{i.Languages.Length - 1}");
+        if (i.WorkingStyles.Length > 0)
+            parts.Add(string.Join("/", i.WorkingStyles));
+        if (!string.IsNullOrWhiteSpace(i.Location))
+            parts.Add(i.Location);
+
+        return parts.Count > 0 ? string.Join(" · ", parts) : "Job search";
+    }
+
+    private async Task SaveCvAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_resume))
+            return;
+
+        try
+        {
+            await Profile.SaveAsync(_resume);
+            _savedCvExists = true;
+            _profileStatus = "CV saved — it'll be here next time.";
+        }
+        catch (Exception ex)
+        {
+            _profileStatus = $"Couldn't save CV: {ex.Message}";
+        }
+    }
+
+    private async Task ForgetCvAsync()
+    {
+        await Profile.DeleteAsync();
+        _savedCvExists = false;
+        _profileStatus = "Saved CV removed.";
+    }
+
+    private void ToggleWorkingStyle(string style, bool selected)
+    {
+        if (selected)
+            _workingStyles.Add(style);
+        else
+            _workingStyles.Remove(style);
+    }
+
+    /// <summary>Composes the structured inputs into a clear preferences block the Coordinator parses.</summary>
+    private string BuildPreferences()
+    {
+        var lines = new List<string>();
+
+        if (_selectedRoles.Length > 0)
+            lines.Add($"Target roles: {string.Join(", ", _selectedRoles)}");
+        if (_selectedLanguages.Length > 0)
+            lines.Add($"Languages / tech: {string.Join(", ", _selectedLanguages)}");
+        if (_workingStyles.Count > 0)
+        {
+            // Preserve the canonical Onsite/Hybrid/Remote ordering.
+            var styles = WorkingStyleOptions.Where(_workingStyles.Contains);
+            lines.Add($"Working style: {string.Join(", ", styles)}");
+        }
+        if (!string.IsNullOrWhiteSpace(_location))
+            lines.Add($"Location: {_location.Trim()}");
+
+        if (_salaryMin is not null || _salaryMax is not null)
+        {
+            var range = (_salaryMin, _salaryMax) switch
+            {
+                ({ } min, { } max) => $"{min:N0} - {max:N0}",
+                ({ } min, null) => $"from {min:N0}",
+                (null, { } max) => $"up to {max:N0}",
+                _ => string.Empty,
+            };
+            lines.Add($"Expected salary: {range} {_currency} per year");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_otherPreferences))
+            lines.Add($"Other preferences: {_otherPreferences.Trim()}");
+
+        return string.Join('\n', lines);
+    }
 
     private async Task StartAsync()
     {
@@ -112,9 +462,24 @@
         _streaming.Clear();
         _cts = new CancellationTokenSource();
 
+        _lastInputs = CurrentInputs();
+        _lastTitle = BuildTitle(_lastInputs);
+        _lastPreferences = BuildPreferences();
+
+        // Remember the CV for next time (best-effort).
         try
         {
-            var (_, events) = JobHunt.Start(_resume, _preferences, ct: _cts.Token);
+            await Profile.SaveAsync(_resume);
+            _savedCvExists = true;
+        }
+        catch
+        {
+            // Non-fatal: a failed save shouldn't block the hunt.
+        }
+
+        try
+        {
+            var (_, events) = JobHunt.Start(_resume, _lastPreferences, ct: _cts.Token);
 
             await foreach (var evt in events.WithCancellation(_cts.Token))
             {
@@ -202,10 +567,12 @@
             return;
 
         var run = new PersistedRun(
-            finished.RunId.Value, DateTime.UtcNow, _preferences, finished.EstimatedCostUsd, _result);
+            finished.RunId.Value, DateTime.UtcNow, _lastTitle, _lastPreferences,
+            _lastInputs, finished.EstimatedCostUsd, _result);
         try
         {
             await Store.SaveAsync(run);
+            await RefreshRecentAsync();
         }
         catch
         {

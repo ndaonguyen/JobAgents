@@ -19,7 +19,7 @@ else
         <thead>
             <tr>
                 <th>When (UTC)</th>
-                <th>Preferences</th>
+                <th>Search</th>
                 <th>Top matches</th>
                 <th>Cost</th>
                 <th></th>
@@ -30,7 +30,9 @@ else
             {
                 <tr>
                     <td>@run.CompletedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
-                    <td class="small">@Truncate(run.Preferences, 60)</td>
+                    <td class="small">
+                        <strong>@(string.IsNullOrWhiteSpace(run.Title) ? "Job search" : run.Title)</strong>
+                    </td>
                     <td>@run.Result.Dossiers.Count</td>
                     <td>@(run.EstimatedCostUsd?.ToString("$0.0000") ?? "—")</td>
                     <td>

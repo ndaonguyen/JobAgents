@@ -13,9 +13,13 @@ builder.Services
     .AddApplication()
     .AddInfrastructure(builder.Configuration);
 
-// Run persistence + Past Runs reader.
-builder.Services.AddSingleton(_ => new RunStore(
-    Path.Combine(builder.Environment.ContentRootPath, "results")));
+// Run persistence + Past Runs reader, and the reusable saved-CV store.
+var resultsDir = Path.Combine(builder.Environment.ContentRootPath, "results");
+builder.Services.AddSingleton(_ => new RunStore(resultsDir));
+builder.Services.AddSingleton(_ => new ProfileStore(resultsDir));
+
+// Resume file → text extraction (PDF / DOCX / TXT).
+builder.Services.AddSingleton<ResumeTextExtractor>();
 
 var app = builder.Build();
 

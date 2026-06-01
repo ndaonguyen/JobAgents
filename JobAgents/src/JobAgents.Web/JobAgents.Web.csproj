@@ -11,4 +11,9 @@
     <ProjectReference Include="../JobAgents.Infrastructure/JobAgents.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+  </ItemGroup>
+
 </Project>

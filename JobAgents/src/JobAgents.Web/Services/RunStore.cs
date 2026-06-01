@@ -3,13 +3,31 @@ using JobAgents.Domain.JobHunt;
 
 namespace JobAgents.Web.Services;
 
+/// <summary>The structured search form inputs, stored so a past run can be reloaded and continued.</summary>
+public sealed record SearchInputs(
+    string[] Roles,
+    string[] Languages,
+    string[] WorkingStyles,
+    string Location,
+    int? SalaryMin,
+    int? SalaryMax,
+    string Currency,
+    string Other)
+{
+    public static SearchInputs Empty { get; } =
+        new([], [], [], string.Empty, null, null, "USD", string.Empty);
+}
+
 /// <summary>A persisted job-hunt run, appended to a daily JSONL file and listed on /past-runs.</summary>
 public sealed record PersistedRun(
     string RunId,
     DateTime CompletedAtUtc,
+    string Title,
     string Preferences,
+    SearchInputs? Inputs,
     decimal? EstimatedCostUsd,
-    JobHuntResult Result);
+    JobHuntResult Result,
+    bool Pinned = false);
 
 /// <summary>
 /// Appends finished runs to <c>results/ui-{yyyyMMdd}.jsonl</c> (one JSON object per line) and reads
@@ -61,6 +79,72 @@ public sealed class RunStore(string directory)
             }
         }
 
-        return runs.OrderByDescending(r => r.CompletedAtUtc).ToList();
+        // Pinned searches float to the top, then most-recent first.
+        return runs
+            .OrderByDescending(r => r.Pinned)
+            .ThenByDescending(r => r.CompletedAtUtc)
+            .ToList();
+    }
+
+    /// <summary>Deletes the run with the given id.</summary>
+    public Task DeleteAsync(string runId, CancellationToken ct = default) =>
+        MutateAsync(run => run.RunId == runId ? null : run, ct);
+
+    /// <summary>Renames the run's title.</summary>
+    public Task RenameAsync(string runId, string title, CancellationToken ct = default) =>
+        MutateAsync(run => run.RunId == runId ? run with { Title = title } : run, ct);
+
+    /// <summary>Toggles the run's pinned flag.</summary>
+    public Task SetPinnedAsync(string runId, bool pinned, CancellationToken ct = default) =>
+        MutateAsync(run => run.RunId == runId ? run with { Pinned = pinned } : run, ct);
+
+    /// <summary>
+    /// Applies <paramref name="transform"/> to every stored run and rewrites the JSONL files.
+    /// Returning null from the transform drops that run; an emptied file is deleted.
+    /// </summary>
+    private async Task MutateAsync(Func<PersistedRun, PersistedRun?> transform, CancellationToken ct)
+    {
+        if (!Directory.Exists(directory))
+            return;
+
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(directory, "ui-*.jsonl"))
+            {
+                var survivors = new List<string>();
+                foreach (var line in await File.ReadAllLinesAsync(file, ct))
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                        continue;
+
+                    PersistedRun? run;
+                    try
+                    {
+                        run = JsonSerializer.Deserialize<PersistedRun>(line, JsonOptions);
+                    }
+                    catch (JsonException)
+                    {
+                        survivors.Add(line); // Preserve lines we can't parse rather than dropping them.
+                        continue;
+                    }
+
+                    if (run is null)
+                        continue;
+
+                    if (transform(run) is { } kept)
+                        survivors.Add(JsonSerializer.Serialize(kept, JsonOptions));
+                }
+
+                if (survivors.Count == 0)
+                    File.Delete(file);
+                else
+                    await File.WriteAllLinesAsync(file, survivors, ct);
+            }
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 }
