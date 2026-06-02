@@ -19,6 +19,7 @@ builder.Services
 var resultsDir = Path.Combine(builder.Environment.ContentRootPath, "results");
 builder.Services.AddSingleton(_ => new RunStore(resultsDir));
 builder.Services.AddSingleton(_ => new ProfileStore(resultsDir));
+builder.Services.AddSingleton(_ => new ModelConfigStore(resultsDir));
 builder.Services.AddSingleton(_ => new IdeaStore(resultsDir));
 
 // Retrieve-before-fetch posting corpus (cuts Tavily calls + grows the result pool across runs).

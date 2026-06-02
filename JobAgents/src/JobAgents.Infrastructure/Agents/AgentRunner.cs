@@ -64,11 +64,17 @@ public sealed class AgentRunner(
         history.AddSystemMessage(systemPrompt);
         history.AddUserMessage(userPrompt);
 
+        var effectiveModel = modelOverride ?? kernelFactory.DefaultModel;
         var settings = new OpenAIPromptExecutionSettings
         {
             FunctionChoiceBehavior = useTools ? FunctionChoiceBehavior.Auto() : FunctionChoiceBehavior.None(),
-            Temperature = 0.2,
         };
+
+        // OpenAI reasoning models (the o-series: o1/o3/o4-mini, …) reject any non-default temperature
+        // with a 400 ("only the default (1) is supported"); only set our low temperature where the model
+        // actually supports it. gpt-* and claude-* are fine.
+        if (SupportsCustomTemperature(effectiveModel))
+            settings.Temperature = 0.2;
 
         // Force a valid JSON object from models that support it (used for non-tool structured agents).
         // Anthropic's OpenAI-compatible endpoint doesn't honour response_format: json_object, so for
@@ -105,4 +111,10 @@ public sealed class AgentRunner(
 
         return new AgentResult(text, usage);
     }
+
+    // Reasoning models match "o" + digit (o1, o3-mini, o4-mini); they only accept the default
+    // temperature. Everything else (gpt-4o*, claude-*) accepts a custom value.
+    private static bool SupportsCustomTemperature(string model) =>
+        string.IsNullOrEmpty(model)
+        || !(model.Length >= 2 && (model[0] is 'o' or 'O') && char.IsDigit(model[1]));
 }

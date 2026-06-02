@@ -6,6 +6,7 @@
 @inject RunStore Store
 @inject ResumeTextExtractor ResumeExtractor
 @inject ProfileStore Profile
+@inject ModelConfigStore ModelConfig
 @inject IMatchExpander Expander
 
 <PageTitle>JobAgents</PageTitle>
@@ -1020,8 +1021,16 @@
             ? Math.Min(30, baseResults + 3 * (domains.Count - 1))
             : baseResults;
         _lastMinScore = _minMatchScore;
+        // Per-agent model overrides chosen in the sidebar (null fields fall back to the app default).
+        var models = await ModelConfig.LoadAsync() ?? new AgentModelConfig();
         var config = JobHuntConfig.Default with
         {
+            CoordinatorModel = models.CoordinatorModel,
+            SearchModel = models.SearchModel,
+            ResumeMatchModel = models.ResumeMatchModel,
+            CompanyResearchModel = models.CompanyResearchModel,
+            SalaryAnalysisModel = models.SalaryAnalysisModel,
+            InterviewPrepModel = models.InterviewPrepModel,
             IncludeDomains = domains,
             MaxResults = maxResults,
             MaxSearches = maxSearches,

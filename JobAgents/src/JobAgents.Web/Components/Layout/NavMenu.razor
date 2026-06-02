@@ -32,4 +32,60 @@
             </NavLink>
         </div>
     </nav>
+
+    @* Per-agent model picker. Saved to disk on every change, applied to the next hunt. *@
+    <div class="model-config px-3" @onclick:stopPropagation="true">
+        <details>
+            <summary><span class="bi bi-sliders-nav-menu" aria-hidden="true"></span> Agent models</summary>
+            <div class="model-config-body">
+                @foreach (var slot in Agents)
+                {
+                    <label class="form-label">@slot.Label</label>
+                    <select class="form-select form-select-sm" value="@slot.Get(_config)"
+                            @onchange="e => OnChangedAsync(slot, e)">
+                        @foreach (var opt in ModelCatalog.Options)
+                        {
+                            <option value="@opt.Id">@opt.Label</option>
+                        }
+                    </select>
+                }
+                <div class="model-config-note">@_status</div>
+            </div>
+        </details>
+    </div>
 </div>
+
+@code {
+    // One row per configurable agent: how to read its current value and how to set it on the record.
+    private sealed record AgentSlot(
+        string Label,
+        Func<AgentModelConfig, string?> Get,
+        Func<AgentModelConfig, string?, AgentModelConfig> With);
+
+    private static readonly AgentSlot[] Agents =
+    [
+        new("Coordinator", c => c.CoordinatorModel, (c, v) => c with { CoordinatorModel = v }),
+        new("Search", c => c.SearchModel, (c, v) => c with { SearchModel = v }),
+        new("Resume match", c => c.ResumeMatchModel, (c, v) => c with { ResumeMatchModel = v }),
+        new("Company research", c => c.CompanyResearchModel, (c, v) => c with { CompanyResearchModel = v }),
+        new("Salary analysis", c => c.SalaryAnalysisModel, (c, v) => c with { SalaryAnalysisModel = v }),
+        new("Interview prep", c => c.InterviewPrepModel, (c, v) => c with { InterviewPrepModel = v }),
+    ];
+
+    [Inject] private ModelConfigStore Models { get; set; } = default!;
+
+    private AgentModelConfig _config = new();
+    private string _status = "Default model for every agent.";
+
+    protected override async Task OnInitializedAsync() =>
+        _config = await Models.LoadAsync() ?? new AgentModelConfig();
+
+    private async Task OnChangedAsync(AgentSlot slot, ChangeEventArgs e)
+    {
+        // Empty selection ("Default") clears the override so the agent falls back to the app default.
+        var value = e.Value?.ToString();
+        _config = slot.With(_config, string.IsNullOrEmpty(value) ? null : value);
+        await Models.SaveAsync(_config);
+        _status = "Saved ✓ — applies to your next hunt.";
+    }
+}
