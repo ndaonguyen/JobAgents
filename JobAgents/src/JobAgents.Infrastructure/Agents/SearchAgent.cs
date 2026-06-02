@@ -36,6 +36,15 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
 
         Prefer recently-posted roles; skip listings that are clearly expired or stale.
 
+        URL QUALITY: PREFER a "url" that points to ONE specific job's own detail page (a page a user can
+        open to read and apply to that single role) over a job-board search/listing/category page that
+        enumerates many jobs (e.g. TopCV "tim-viec-lam-…"/"…-kl<number>", ITviec "/it-jobs",
+        VietnamWorks "/viec-lam" search pages). When you have a role's individual detail URL, always use
+        it. BUT do NOT drop a real, relevant posting just because the only URL available is a listing
+        page — these boards (TopCV/ITviec/VietnamWorks) are JS-heavy and often only expose listing URLs,
+        and the UI labels such links so the user isn't misled. Finding the role is more important than a
+        perfect URL.
+
         Then return ONLY a JSON array of the best DISTINCT postings (dedupe by company+title), each:
         { "title": string, "company": string, "location": string, "url": string, "summary": string,
           "postedDate": string or null, "description": string }

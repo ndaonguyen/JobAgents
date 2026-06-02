@@ -89,8 +89,11 @@
         <div class="mt-2 d-flex gap-2 align-items-center">
             @if (!string.IsNullOrWhiteSpace(Dossier.Match.Posting.Url))
             {
-                <a class="btn btn-sm btn-outline-primary" href="@Dossier.Match.Posting.Url" target="_blank">
-                    View posting
+                var isListing = SourceHostUtil.IsListing(Dossier.Match.Posting.Url);
+                <a class="btn btn-sm @(isListing ? "btn-outline-secondary" : "btn-outline-primary")"
+                   href="@Dossier.Match.Posting.Url" target="_blank"
+                   title="@(isListing ? "This link opens a job-board search/listing page (multiple jobs), not a single posting." : "Open the job posting")">
+                    @(isListing ? "Search results ↗" : "View posting")
                 </a>
             }
             @if (IsMatchOnly && OnExpand.HasDelegate)

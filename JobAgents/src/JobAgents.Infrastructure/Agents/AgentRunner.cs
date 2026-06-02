@@ -39,7 +39,8 @@ public sealed class AgentRunner(
     IKernelFactory kernelFactory,
     IAgentEventBus bus,
     IUsageCalculator usageCalculator,
-    AgentRunContext context)
+    AgentRunContext context,
+    RunUsageAccumulator usageAccumulator)
     : IAgentRunner
 {
     public async Task<AgentResult> RunAsync(
@@ -94,10 +95,14 @@ public sealed class AgentRunner(
         var (model, tokensIn, tokensOut) = UsageExtractor.Extract(last, modelOverride ?? kernelFactory.DefaultModel);
         var cost = usageCalculator.EstimateCostUsd(model, tokensIn, tokensOut);
         var text = builder.ToString();
+        var usage = new AgentUsage(tokensIn, tokensOut, cost);
+
+        // Record against the run so the Coordinator can report a true grand total in the System event.
+        usageAccumulator.Add(runId, usage);
 
         await bus.PublishAsync(
             new AgentFinishedEvent(runId, agentId, text, tokensIn, tokensOut, cost, DateTime.UtcNow), ct);
 
-        return new AgentResult(text, new AgentUsage(tokensIn, tokensOut, cost));
+        return new AgentResult(text, usage);
     }
 }

@@ -21,7 +21,7 @@ namespace JobAgents.Infrastructure.Plugins;
 /// </summary>
 public sealed class JobSearchPlugin(
     HttpClient http, IOptions<JobAgentsOptions> options, AgentRunContext context,
-    IAgentEventBus bus, ILogger<JobSearchPlugin> logger)
+    IAgentEventBus bus, ILogger<JobSearchPlugin> logger, TavilySearchCache cache)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -66,7 +66,9 @@ public sealed class JobSearchPlugin(
         // Fallback: a hard domain restriction can shut out niche / JS-heavy sites that Tavily indexes
         // poorly (e.g. itviec.com). If it found nothing, retry across the whole web with the site names
         // folded into the query as keyword hints — biasing toward those sites without excluding others.
-        if (items.Count == 0 && domains.Count > 0)
+        // Budget-limited per run so it can't balloon the request count.
+        if (items.Count == 0 && domains.Count > 0
+            && (context.CurrentRun is not { } fbRun || cache.TryUseFallback(fbRun)))
         {
             var biasedQuery = $"{query} {string.Join(' ', domains)}";
             var (fallbackItems, fallbackError) = await SearchAsync(
@@ -104,7 +106,16 @@ public sealed class JobSearchPlugin(
         string query, int maxResults, string[]? includeDomains,
         string? timeRange, string? startDate, string? endDate, bool isFallback, CancellationToken ct)
     {
-        // Count this as one real external request, attributed to the current run/agent for the UI.
+        // Serve identical queries (within a run, or across "Search harder" re-runs) from cache — no
+        // HTTP request, so it isn't counted on the bus either.
+        var cacheKey = BuildCacheKey(query, maxResults, includeDomains, timeRange, startDate, endDate);
+        if (cache.TryGet(cacheKey, out var cached))
+        {
+            logger.LogInformation("Tavily cache hit for query {Query} (domains: {Domains}).", query, Describe(includeDomains ?? []));
+            return (cached.ToList(), null);
+        }
+
+        // Cache miss → this is a real external request; count it for the UI, attributed to run/agent.
         if (context.CurrentRun is { } runId)
         {
             await bus.PublishAsync(new WebSearchRequestedEvent(
@@ -135,7 +146,18 @@ public sealed class JobSearchPlugin(
         }
 
         var result = await response.Content.ReadFromJsonAsync<TavilyResponse>(JsonOptions, ct);
-        return (result?.Results ?? [], null);
+        var items = result?.Results ?? [];
+        cache.Set(cacheKey, items);
+        return (items, null);
+    }
+
+    // Full request signature so only truly-identical searches share a cached response.
+    private static string BuildCacheKey(
+        string query, int maxResults, string[]? includeDomains, string? timeRange, string? startDate, string? endDate)
+    {
+        var domains = includeDomains is { Length: > 0 } ? string.Join(",", includeDomains) : "*";
+        return string.Join('|',
+            query.Trim().ToLowerInvariant(), domains, maxResults, timeRange ?? "", startDate ?? "", endDate ?? "");
     }
 
     private static string Truncate(string? value, int max)
@@ -159,10 +181,4 @@ public sealed class JobSearchPlugin(
 
     private sealed record TavilyResponse(
         [property: JsonPropertyName("results")] List<TavilyResult> Results);
-
-    private sealed record TavilyResult(
-        [property: JsonPropertyName("title")] string? Title,
-        [property: JsonPropertyName("url")] string? Url,
-        [property: JsonPropertyName("content")] string? Content,
-        [property: JsonPropertyName("published_date")] string? PublishedDate);
 }

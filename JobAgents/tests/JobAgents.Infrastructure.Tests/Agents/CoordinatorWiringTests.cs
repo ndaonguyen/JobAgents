@@ -6,6 +6,7 @@ using JobAgents.Domain.JobHunt;
 using JobAgents.Domain.Runs;
 using JobAgents.Infrastructure.Agents;
 using JobAgents.Infrastructure.EventBus;
+using JobAgents.Infrastructure.Sourcing;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace JobAgents.Infrastructure.Tests.Agents;
@@ -40,7 +41,7 @@ public class CoordinatorWiringTests
 
         var coordinator = new Coordinator(
             new FakeRunner(), search, match, company, salary, interview, bus,
-            context, NullLogger<Coordinator>.Instance);
+            context, new RunUsageAccumulator(), new NullPostingStore(), NullLogger<Coordinator>.Instance);
 
         var subscription = CollectAsync(bus, runId);
         await coordinator.RunAsync(new AgentRunRequest(runId, "resume", "prefs"), config);

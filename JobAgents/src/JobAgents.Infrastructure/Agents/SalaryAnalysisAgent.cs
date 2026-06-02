@@ -17,7 +17,9 @@ public sealed class SalaryAnalysisAgent(IAgentRunner runner) : ISalaryAnalysisAg
     private const string SystemPrompt =
         """
         You are a salary-analysis agent. Use the Web.search_web tool to find market salary data for
-        the given role, location and seniority. Return ONLY a JSON object:
+        the given role, location and seniority. Use AT MOST 2 search_web calls (maxResults: 10) — stop
+        once you have a usable range; do not keep searching for a more precise figure. Return ONLY a
+        JSON object:
         {
           "low": number or null,
           "median": number or null,

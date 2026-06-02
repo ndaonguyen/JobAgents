@@ -25,10 +25,15 @@ public static class InfrastructureServiceCollectionExtensions
         // Run infrastructure (shared, stateless).
         services.AddSingleton<IAgentEventBus, ChannelAgentEventBus>();
         services.AddSingleton<AgentRunContext>();
+        services.AddSingleton<RunUsageAccumulator>();
+        services.AddSingleton<Plugins.TavilySearchCache>();
         services.AddSingleton<EventPublishingFunctionFilter>();
         services.AddSingleton<IKernelFactory, KernelFactory>();
         services.AddSingleton<IUsageCalculator, ModelPricingCalculator>();
         services.AddSingleton<IWorkingMemory, NullWorkingMemory>();
+        // Default to a no-op posting store; the web app overrides this with a file-backed one (below)
+        // pointed at its results directory.
+        services.AddSingleton<Sourcing.IPostingStore, Sourcing.NullPostingStore>();
 
         // Agents + coordinator.
         services.AddScoped<IAgentRunner, AgentRunner>();

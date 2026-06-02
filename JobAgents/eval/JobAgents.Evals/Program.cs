@@ -77,6 +77,8 @@ foreach (var c in GoldenCases.Matches)
     var scores = new List<int>();
     int inBand = 0, skillsOk = 0, grounded = 0;
     var sampleMatched = "(none)";
+    var sampleRationale = "(none)";
+    var groundingFlags = new List<string>();
 
     for (var t = 0; t < trials; t++)
     {
@@ -94,9 +96,13 @@ foreach (var c in GoldenCases.Matches)
         var verdict = await judge.AuditAsync(evalRunId, c.Resume, match.MatchedSkills, match.Rationale, null, default);
         if (verdict.Grounded)
             grounded++;
+        else
+            groundingFlags.AddRange(verdict.Unsupported.Length > 0 ? verdict.Unsupported : [verdict.Note]);
 
         if (match.MatchedSkills.Count > 0)
             sampleMatched = matchedJoined;
+        if (!verdict.Grounded)
+            sampleRationale = match.Rationale;
     }
 
     results.Add(new CaseResult(
@@ -108,7 +114,9 @@ foreach (var c in GoldenCases.Matches)
         Grounded: grounded,
         Trials: trials,
         Majority: majority,
-        SampleMatched: sampleMatched));
+        SampleMatched: sampleMatched,
+        SampleRationale: sampleRationale,
+        GroundingFlags: groundingFlags));
 }
 
 // End the cost subscription cleanly (terminal System event flushes the FIFO reader).
@@ -124,15 +132,25 @@ foreach (var r in results)
     Console.WriteLine(
         $"      score median {r.MedianScore,3}  runs [{string.Join(",", r.Scores)}]  expected [{r.Case.MinScore}-{r.Case.MaxScore}]" +
         $"  in-band {r.InBand}/{r.Trials} {Mark(r.ScorePass)}");
+    Console.WriteLine(
+        $"      target {r.Case.TargetScore,3}  abs error {r.AbsError,3}  (lower is better)");
     if (r.Case.ExpectedMatchedSkills.Length > 0)
         Console.WriteLine($"      skills {r.SkillsOk}/{r.Trials} {Mark(r.SkillsPass)}   e.g. matched: {r.SampleMatched}");
     Console.WriteLine($"      grounded {r.Grounded}/{r.Trials} {Mark(r.GroundedPass)}");
+    if (!r.GroundedPass && r.GroundingFlags.Count > 0)
+    {
+        foreach (var flag in r.GroundingFlags.Distinct().Take(6))
+            Console.WriteLine($"        ⚠ judge flagged: {flag}");
+        Console.WriteLine($"        ↳ rationale was: {r.SampleRationale}");
+    }
     Console.WriteLine();
 }
 
 var passed = results.Count(r => r.Passed);
+var mae = results.Average(r => r.AbsError);
 Console.WriteLine(new string('─', 78));
-Console.WriteLine($"Passed {passed}/{results.Count}   tokens: {totalTokens:N0}   est. cost: {totalCost:$0.0000}");
+Console.WriteLine(
+    $"Passed {passed}/{results.Count}   score MAE: {mae:0.0}   tokens: {totalTokens:N0}   est. cost: {totalCost:$0.0000}");
 
 return passed == results.Count ? 0 : 1;
 
@@ -147,8 +165,11 @@ internal sealed record CaseResult(
     int Grounded,
     int Trials,
     int Majority,
-    string SampleMatched)
+    string SampleMatched,
+    string SampleRationale,
+    List<string> GroundingFlags)
 {
+    public int AbsError => Math.Abs(MedianScore - Case.TargetScore);
     public bool ScorePass => InBand >= Majority;
     public bool SkillsPass => Case.ExpectedMatchedSkills.Length == 0 || SkillsOk >= Majority;
     public bool GroundedPass => Grounded >= Majority;

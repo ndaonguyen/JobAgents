@@ -39,6 +39,11 @@ public sealed class ResumeMatchAgent(IAgentRunner runner, IOptions<JobAgentsOpti
           Never list a skill just because the posting requires it — if the resume does not clearly
           evidence that skill, it does NOT belong here; put it in "gaps" instead. Every entry must be
           backed by something actually written in the resume.
+          NEVER include inferred, assumed, "transferable", or parenthetically-qualified skills. If you
+          find yourself writing "(inferred from …)", "(likely)", "(transferable)", or grouping several
+          technologies under an umbrella the resume never names, that skill is NOT a match — move it to
+          "gaps". Each entry must be a skill literally named or unambiguously shown in the resume, listed
+          as a plain skill name with no qualifiers, hedges, or parentheses.
         - "gaps": specific requirements the posting asks for that the candidate lacks or
           under-demonstrates in the resume (this is where missing required skills go).
         - "rationale": 2-4 sentences citing SPECIFIC evidence — name the candidate's relevant
@@ -86,9 +91,67 @@ public sealed class ResumeMatchAgent(IAgentRunner runner, IOptions<JobAgentsOpti
         return new JobMatch(
             Posting: posting,
             Score: Math.Clamp(dto?.Score ?? 0, 0, 100),
-            MatchedSkills: dto?.MatchedSkills ?? [],
+            // Deterministic grounding guard: smaller models sometimes copy the posting's required
+            // skills into matchedSkills even when the resume never shows them. Drop any matched skill
+            // whose name doesn't actually appear in the resume text, so the list can't claim skills
+            // the candidate hasn't evidenced. Score and gaps are left untouched.
+            MatchedSkills: GroundMatchedSkills(dto?.MatchedSkills, resumeText),
             Gaps: dto?.Gaps ?? [],
             Rationale: dto?.Rationale ?? "(no rationale produced)");
+    }
+
+    /// <summary>
+    /// Keeps only skills whose name is actually present in the resume. Matching is case- and
+    /// punctuation-insensitive (so "ASP.NET Core" matches "asp net core"); short symbolic skills like
+    /// "C#" must appear as a whole word to avoid spurious substring hits, longer names match anywhere.
+    /// </summary>
+    private static List<string> GroundMatchedSkills(List<string>? skills, string resumeText)
+    {
+        if (skills is null || skills.Count == 0)
+            return [];
+
+        var normalizedResume = Normalize(resumeText);
+        var paddedResume = $" {normalizedResume} ";
+
+        var grounded = new List<string>();
+        foreach (var skill in skills)
+        {
+            var normalized = Normalize(skill);
+            if (normalized.Length == 0)
+                continue;
+
+            var present = normalized.Length <= 2
+                ? paddedResume.Contains($" {normalized} ", StringComparison.Ordinal) // whole-word for "C#", "Go", …
+                : normalizedResume.Contains(normalized, StringComparison.Ordinal);
+
+            if (present)
+                grounded.Add(skill);
+        }
+
+        return grounded;
+    }
+
+    /// <summary>Lower-cases and collapses every run of non-alphanumeric characters to a single space.</summary>
+    private static string Normalize(string value)
+    {
+        var sb = new System.Text.StringBuilder(value.Length);
+        var pendingSpace = false;
+        foreach (var ch in value)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                if (pendingSpace && sb.Length > 0)
+                    sb.Append(' ');
+                pendingSpace = false;
+                sb.Append(char.ToLowerInvariant(ch));
+            }
+            else
+            {
+                pendingSpace = true;
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static string Join(IReadOnlyList<string> values) =>

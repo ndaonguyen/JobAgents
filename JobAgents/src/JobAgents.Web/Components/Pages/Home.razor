@@ -388,7 +388,7 @@
                 <div class="card-body py-2">
                     <div class="d-flex flex-wrap gap-3 align-items-center small">
                         <span class="badge bg-secondary fs-6">
-                            Total: @((_cost ?? (_searchCost + _matchCost + _otherCost)).ToString("$0.0000"))
+                            Total: @TotalCost.ToString("$0.0000")
                         </span>
                         <span title="Resume-matching LLM cost (Claude)">
                             🧩 Matching (Claude): <strong>@_matchCost.ToString("$0.0000")</strong>
@@ -402,8 +402,9 @@
                                 📊 Research &amp; synthesis: <strong>@_otherCost.ToString("$0.0000")</strong>
                             </span>
                         }
-                        <span title="Total Tavily web-search requests this run (incl. fallbacks)">
-                            🌐 Tavily requests: <strong>@_tavilyRequests</strong>
+                        <span title="Tavily web-search requests this run (incl. fallbacks): job sourcing vs. company research">
+                            🌐 Tavily: <strong>@_tavilyRequests</strong>
+                            <span class="text-muted">(🔎 search @_searchTavily · 🏢 research @_researchTavily)</span>
                         </span>
                     </div>
                 </div>
@@ -542,13 +543,20 @@
     public bool AutoRun { get; set; }
 
     private string? _error;
-    private decimal? _cost;
     private int _tavilyRequests;
+    // Tavily requests split by the agent that issued them: the Search agent (job sourcing) vs. the
+    // Company-Research agent (looking up top matches). _tavilyRequests is the run-wide total.
+    private int _searchTavily;
+    private int _researchTavily;
     // Per-category LLM cost, accumulated from each agent's finished event (the matcher runs on Claude,
     // everything else on OpenAI, so the split is genuinely useful).
     private decimal _searchCost;
     private decimal _matchCost;
     private decimal _otherCost;
+    // True run cost = sum of every agent's reported cost off the bus. The Coordinator's System-event
+    // aggregate only covers its own parse/synthesis calls, so we total the per-agent costs ourselves
+    // (same approach the eval uses) rather than trust finished.EstimatedCostUsd.
+    private decimal TotalCost => _searchCost + _matchCost + _otherCost;
     private JobHuntResult? _result;
 
     // Search budget: user-selected effort (max searches) + an escalation applied by "Search harder".
@@ -974,8 +982,9 @@
 
         _running = true;
         _error = null;
-        _cost = null;
         _tavilyRequests = 0;
+        _searchTavily = 0;
+        _researchTavily = 0;
         _searchCost = 0m;
         _matchCost = 0m;
         _otherCost = 0m;
@@ -1038,7 +1047,6 @@
                 {
                     _result = TryParseResult(finished.FinalText);
                     _dossiers = _result?.Dossiers.ToList() ?? new();
-                    _cost = finished.EstimatedCostUsd;
                     await PersistAsync(finished);
                 }
                 else if (evt is AgentErrorEvent error && error.AgentId == AgentId.System)
@@ -1097,6 +1105,10 @@
 
             case WebSearchRequestedEvent e:
                 _tavilyRequests++;
+                if (e.AgentId == AgentId.Search)
+                    _searchTavily++;
+                else
+                    _researchTavily++;
                 _activity.Add(new ActivityItem("🌐",
                     $"Web search #{_tavilyRequests}{(e.IsFallback ? " (fallback)" : "")}", Truncate(e.Query, 140)));
                 break;
@@ -1137,7 +1149,7 @@
 
         var run = new PersistedRun(
             finished.RunId.Value, DateTime.UtcNow, _lastTitle, _lastPreferences,
-            _lastInputs, finished.EstimatedCostUsd, _result);
+            _lastInputs, TotalCost, _result);
         try
         {
             await Store.SaveAsync(run);

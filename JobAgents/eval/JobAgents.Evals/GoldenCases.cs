@@ -13,7 +13,8 @@ public sealed record MatchCase(
     SearchCriteria Criteria,
     int MinScore,
     int MaxScore,
-    string[] ExpectedMatchedSkills);
+    string[] ExpectedMatchedSkills,
+    int TargetScore);
 
 /// <summary>The fixed, hand-labelled evaluation set. Small on purpose — calibration, not coverage.</summary>
 public static class GoldenCases
@@ -56,7 +57,8 @@ public static class GoldenCases
                 SalaryExpectation: null),
             MinScore: 72,
             MaxScore: 100,
-            ExpectedMatchedSkills: ["C#", ".NET", "Kafka", "AWS"]),
+            ExpectedMatchedSkills: ["C#", ".NET", "Kafka", "AWS"],
+            TargetScore: 90),
 
         new MatchCase(
             Name: "weak-fit-ios-swift",
@@ -81,7 +83,8 @@ public static class GoldenCases
                 SalaryExpectation: null),
             MinScore: 0,
             MaxScore: 50,
-            ExpectedMatchedSkills: []),
+            ExpectedMatchedSkills: [],
+            TargetScore: 20),
 
         new MatchCase(
             Name: "mid-fit-fullstack-react",
@@ -106,6 +109,7 @@ public static class GoldenCases
                 SalaryExpectation: null),
             MinScore: 40,
             MaxScore: 78,
-            ExpectedMatchedSkills: ["C#", ".NET"]),
+            ExpectedMatchedSkills: ["C#", ".NET"],
+            TargetScore: 60),
     ];
 }

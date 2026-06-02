@@ -21,6 +21,10 @@ builder.Services.AddSingleton(_ => new RunStore(resultsDir));
 builder.Services.AddSingleton(_ => new ProfileStore(resultsDir));
 builder.Services.AddSingleton(_ => new IdeaStore(resultsDir));
 
+// Retrieve-before-fetch posting corpus (cuts Tavily calls + grows the result pool across runs).
+builder.Services.AddSingleton<JobAgents.Infrastructure.Sourcing.IPostingStore>(
+    _ => new JobAgents.Infrastructure.Sourcing.FilePostingStore(resultsDir));
+
 // Resume file → text extraction (PDF / DOCX / TXT).
 builder.Services.AddSingleton<ResumeTextExtractor>();
 

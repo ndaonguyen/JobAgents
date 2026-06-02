@@ -17,7 +17,8 @@ public sealed class CompanyResearchAgent(IAgentRunner runner) : ICompanyResearch
     private const string SystemPrompt =
         """
         You are a company-research agent. Use the Web.search_web tool to learn about the company a
-        candidate may join. Return ONLY a JSON object:
+        candidate may join. Use AT MOST 2 search_web calls (maxResults: 10) — one broad query is
+        usually enough; stop as soon as you have enough to fill the fields. Return ONLY a JSON object:
         {
           "company": string,
           "summary": string,

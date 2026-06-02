@@ -23,13 +23,14 @@ public sealed class Coordinator(
     IInterviewPrepAgent interviewPrepAgent,
     IAgentEventBus bus,
     AgentRunContext context,
+    RunUsageAccumulator usageAccumulator,
+    Sourcing.IPostingStore postingStore,
     ILogger<Coordinator> logger)
     : IOrchestrator
 {
     public async Task RunAsync(AgentRunRequest request, JobHuntConfig config, CancellationToken ct = default)
     {
         var runId = request.RunId;
-        var usage = AgentUsage.Zero;
 
         // Make the run's source + recency filters available to the web-search plugin (flows via AsyncLocal).
         context.IncludeDomains = config.IncludeDomains ?? Array.Empty<string>();
@@ -38,20 +39,24 @@ public sealed class Coordinator(
         context.EndDate = config.EndDate;
 
         // 1. Parse criteria — unless the caller already supplied (user-edited) criteria.
-        SearchCriteria criteria;
-        if (request.Criteria is not null)
+        var criteria = request.Criteria ?? await ParseCriteriaCoreAsync(request, config, ct);
+
+        // 2. Source postings: first REUSE fresh, criteria-matching rows from the corpus (no Tavily),
+        // then top up with a live search only for the remaining gap. Newly-found postings are saved
+        // back so future runs can reuse them.
+        var cached = postingStore.Query(criteria, config.TimeRange, config.MaxResults);
+        IReadOnlyList<JobPosting> fresh = Array.Empty<JobPosting>();
+        if (cached.Count < config.MaxResults)
         {
-            criteria = request.Criteria;
+            fresh = await searchAgent.FindJobsAsync(runId, criteria, config, ct);
+            await postingStore.SaveAsync(fresh, ct);
         }
         else
         {
-            var (parsed, criteriaUsage) = await ParseCriteriaCoreAsync(request, config, ct);
-            criteria = parsed;
-            usage = usage.Add(criteriaUsage);
+            logger.LogInformation("Run {RunId}: served {Count} postings from cache; skipped live search.", runId, cached.Count);
         }
 
-        // 2. Search for postings.
-        var postings = Dedupe(await searchAgent.FindJobsAsync(runId, criteria, config, ct));
+        var postings = Dedupe(cached.Concat(fresh).ToList()).Take(config.MaxResults).ToList();
         await bus.PublishAsync(new JobsFoundEvent(runId, AgentId.Search, postings, DateTime.UtcNow), ct);
 
         // 3. Match every posting in parallel (concurrency-gated).
@@ -73,11 +78,15 @@ public sealed class Coordinator(
             .ToList();
 
         // 5. Fully research only the top matches (company + salary + interview prep, in parallel)…
+        // Company research is deduped by company name: two top matches at the same employer share one
+        // research call (and one set of Tavily requests) instead of repeating it.
         var toExpand = qualifying.Take(config.TopMatchesToExpand).ToList();
+        var companyResearch = new System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<CompanyInsight?>>>(
+            StringComparer.OrdinalIgnoreCase);
         var expanded = await FanOutAsync(
             toExpand,
             config.MaxFanOutConcurrency,
-            async (match, index) => await ExpandAsync(runId, index, match, criteria, config, ct),
+            async (match, index) => await ExpandAsync(runId, index, match, criteria, config, companyResearch, ct),
             ct);
 
         // …and include the remaining qualifying matches as match-only dossiers (cheap, no extra agents).
@@ -88,12 +97,13 @@ public sealed class Coordinator(
         var dossiers = expanded.Concat(rest).ToList();
 
         // 6. Synthesise a short summary.
-        var (summary, summaryUsage) = await SynthesiseAsync(runId, criteria, dossiers, config, ct);
-        usage = usage.Add(summaryUsage);
+        var summary = await SynthesiseAsync(runId, criteria, dossiers, config, ct);
 
         var result = new JobHuntResult(criteria, dossiers, summary);
 
-        // 7. Terminal System event carries the structured result + aggregated usage.
+        // 7. Terminal System event carries the structured result + the TRUE run total (every agent's
+        // usage, recorded by the AgentRunner), not just the Coordinator's own calls.
+        var usage = usageAccumulator.Take(runId);
         var finalJson = JsonSerializer.Serialize(result, AgentJson.Options);
         await bus.PublishAsync(
             new AgentFinishedEvent(
@@ -110,11 +120,13 @@ public sealed class Coordinator(
     public async Task<SearchCriteria> ParseCriteriaAsync(
         AgentRunRequest request, JobHuntConfig config, CancellationToken ct = default)
     {
-        var (criteria, _) = await ParseCriteriaCoreAsync(request, config, ct);
+        var criteria = await ParseCriteriaCoreAsync(request, config, ct);
+        // Standalone preview (no terminal System event): release the tally so it can't accumulate.
+        usageAccumulator.Take(request.RunId);
         return criteria;
     }
 
-    private async Task<(SearchCriteria, AgentUsage)> ParseCriteriaCoreAsync(
+    private async Task<SearchCriteria> ParseCriteriaCoreAsync(
         AgentRunRequest request, JobHuntConfig config, CancellationToken ct)
     {
         const string systemPrompt =
@@ -148,17 +160,23 @@ public sealed class Coordinator(
             runId: request.RunId, AgentId.Coordinator, "Coordinator",
             systemPrompt, userPrompt, config.CoordinatorModel, useTools: false, ct, jsonMode: true);
 
-        var criteria = AgentJson.TryParse<SearchCriteria>(result.Text) ?? SearchCriteria.Empty;
-        return (criteria, result.Usage);
+        return AgentJson.TryParse<SearchCriteria>(result.Text) ?? SearchCriteria.Empty;
     }
 
     private async Task<JobDossier> ExpandAsync(
-        RunId runId, int index, JobMatch match, SearchCriteria criteria, JobHuntConfig config, CancellationToken ct)
+        RunId runId, int index, JobMatch match, SearchCriteria criteria, JobHuntConfig config,
+        System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<CompanyInsight?>>> companyResearch,
+        CancellationToken ct)
     {
         var posting = match.Posting;
 
-        var companyTask = Run(() => companyResearchAgent.ResearchAsync(runId, index, posting.Company, config, ct),
-            ev => new CompanyResearchedEvent(runId, AgentId.CompanyResearch(index), ev, DateTime.UtcNow));
+        // Research each distinct company once; same-company matches await the shared task.
+        var company = (posting.Company ?? string.Empty).Trim();
+        var companyTask = companyResearch.GetOrAdd(
+            company,
+            _ => new Lazy<Task<CompanyInsight?>>(() => Run(
+                () => companyResearchAgent.ResearchAsync(runId, index, company, config, ct),
+                ev => new CompanyResearchedEvent(runId, AgentId.CompanyResearch(index), ev, DateTime.UtcNow)))).Value;
         var salaryTask = Run(() => salaryAnalysisAgent.AnalyzeAsync(runId, index, posting, criteria, config, ct),
             ev => new SalaryAnalyzedEvent(runId, AgentId.SalaryAnalysis(index), ev, DateTime.UtcNow));
         var interviewTask = Run(() => interviewPrepAgent.PrepareAsync(runId, index, posting, match, config, ct),
@@ -184,11 +202,11 @@ public sealed class Coordinator(
         }
     }
 
-    private async Task<(string, AgentUsage)> SynthesiseAsync(
+    private async Task<string> SynthesiseAsync(
         RunId runId, SearchCriteria criteria, IReadOnlyList<JobDossier> dossiers, JobHuntConfig config, CancellationToken ct)
     {
         if (dossiers.Count == 0)
-            return ($"No postings scored at or above {config.MinMatchScore}/100 for the given criteria.", AgentUsage.Zero);
+            return $"No postings scored at or above {config.MinMatchScore}/100 for the given criteria.";
 
         const string systemPrompt =
             "You are the coordinator. Write a concise (3-5 sentence) summary of the candidate's best "
@@ -203,10 +221,10 @@ public sealed class Coordinator(
             runId, AgentId.Coordinator, "Coordinator",
             systemPrompt, userPrompt, config.CoordinatorModel, useTools: false, ct);
 
-        return (result.Text, result.Usage);
+        return result.Text;
     }
 
-    private static IReadOnlyList<JobPosting> Dedupe(IReadOnlyList<JobPosting> postings) =>
+    internal static IReadOnlyList<JobPosting> Dedupe(IReadOnlyList<JobPosting> postings) =>
         postings
             .GroupBy(p => string.IsNullOrWhiteSpace(p.Url) ? $"{p.Title}|{p.Company}" : p.Url,
                 StringComparer.OrdinalIgnoreCase)

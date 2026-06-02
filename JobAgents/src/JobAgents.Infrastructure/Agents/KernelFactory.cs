@@ -25,7 +25,8 @@ public sealed class KernelFactory(
     EventPublishingFunctionFilter functionFilter,
     AgentRunContext runContext,
     IAgentEventBus bus,
-    ILogger<JobSearchPlugin> searchPluginLogger)
+    ILogger<JobSearchPlugin> searchPluginLogger,
+    TavilySearchCache searchCache)
     : IKernelFactory
 {
     private readonly OpenAiOptions _openAi = options.Value.OpenAi;
@@ -69,7 +70,7 @@ public sealed class KernelFactory(
         if (includePlugins)
         {
             var searchHttp = httpClientFactory.CreateClient("tavily");
-            var searchPlugin = new JobSearchPlugin(searchHttp, options, runContext, bus, searchPluginLogger);
+            var searchPlugin = new JobSearchPlugin(searchHttp, options, runContext, bus, searchPluginLogger, searchCache);
             kernel.Plugins.AddFromObject(searchPlugin, "Web");
         }
 
