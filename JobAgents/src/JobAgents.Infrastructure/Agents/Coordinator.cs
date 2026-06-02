@@ -24,6 +24,7 @@ public sealed class Coordinator(
     IAgentEventBus bus,
     AgentRunContext context,
     RunUsageAccumulator usageAccumulator,
+    WebSearchAccumulator searchCounts,
     Sourcing.IPostingStore postingStore,
     ILogger<Coordinator> logger)
     : IOrchestrator
@@ -119,6 +120,8 @@ public sealed class Coordinator(
         logger.LogInformation(
             "Run {RunId} finished: {Postings} postings, {Top} expanded dossiers",
             runId, postings.Count, dossiers.Count);
+        // Report where the run's live web-search budget actually went, broken down by agent.
+        logger.LogInformation("Run {RunId} web search: {Breakdown}", runId, searchCounts.TakeSummary(runId));
     }
 
     /// <summary>Parses the candidate's resume + preferences into structured criteria (no search run).</summary>

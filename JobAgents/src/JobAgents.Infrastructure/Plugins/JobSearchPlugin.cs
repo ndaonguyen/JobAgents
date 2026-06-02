@@ -21,7 +21,8 @@ namespace JobAgents.Infrastructure.Plugins;
 /// </summary>
 public sealed class JobSearchPlugin(
     HttpClient http, IOptions<JobAgentsOptions> options, AgentRunContext context,
-    IAgentEventBus bus, ILogger<JobSearchPlugin> logger, TavilySearchCache cache)
+    IAgentEventBus bus, ILogger<JobSearchPlugin> logger, TavilySearchCache cache,
+    WebSearchAccumulator searchCounts)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -118,8 +119,10 @@ public sealed class JobSearchPlugin(
         // Cache miss → this is a real external request; count it for the UI, attributed to run/agent.
         if (context.CurrentRun is { } runId)
         {
-            await bus.PublishAsync(new WebSearchRequestedEvent(
-                runId, context.CurrentAgent ?? AgentId.System, query, isFallback, DateTime.UtcNow), ct);
+            var agent = context.CurrentAgent ?? AgentId.System;
+            await bus.PublishAsync(new WebSearchRequestedEvent(runId, agent, query, isFallback, DateTime.UtcNow), ct);
+            // Also tally it per-agent so the Coordinator can log the run's true search split at the end.
+            searchCounts.Add(runId, agent, isFallback);
         }
 
         // "advanced" gives much better recall on niche / JS-heavy sites (e.g. itviec.com) than "basic".

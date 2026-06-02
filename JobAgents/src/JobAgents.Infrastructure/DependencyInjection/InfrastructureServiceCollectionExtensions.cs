@@ -26,6 +26,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IAgentEventBus, ChannelAgentEventBus>();
         services.AddSingleton<AgentRunContext>();
         services.AddSingleton<RunUsageAccumulator>();
+        services.AddSingleton<WebSearchAccumulator>();
         services.AddSingleton<Plugins.TavilySearchCache>();
         services.AddSingleton<EventPublishingFunctionFilter>();
         services.AddSingleton<IKernelFactory, KernelFactory>();
