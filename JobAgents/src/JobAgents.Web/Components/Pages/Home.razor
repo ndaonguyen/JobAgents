@@ -263,6 +263,22 @@
                 </div>
 
                 <div class="mt-2">
+                    <label class="form-label small mb-0 d-block">
+                        Search effort <span class="text-muted">(how many web searches to run)</span>
+                    </label>
+                    @foreach (var (label, value, hint) in SearchEffortOptions)
+                    {
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="searchEffort"
+                                   id="@($"effort-{value}")"
+                                   checked="@(_searchEffort == value)"
+                                   @onchange="() => _searchEffort = value" />
+                            <label class="form-check-label small" for="@($"effort-{value}")">@label <span class="text-muted">@hint</span></label>
+                        </div>
+                    }
+                </div>
+
+                <div class="mt-2">
                     <label class="form-label small mb-0">Anything else <span class="text-muted">(optional)</span></label>
                     <textarea class="form-control" rows="2" @bind="_otherPreferences"
                               placeholder="e.g. fintech or health domains, no on-call, visa sponsorship"></textarea>
@@ -337,6 +353,14 @@
                 <span class="ms-2 badge bg-info text-dark" title="Total Tavily web-search requests this run (incl. fallbacks)">
                     🌐 @_tavilyRequests web search@(_tavilyRequests == 1 ? "" : "es")
                 </span>
+            }
+            @if (_result is not null && !_running)
+            {
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-3"
+                        @onclick="SearchHarderAsync" disabled="@string.IsNullOrWhiteSpace(_resume)"
+                        title="Re-run with a bigger search budget and more results">
+                    🔁 Search harder
+                </button>
             }
         </EditForm>
 
@@ -503,6 +527,12 @@
     private int _tavilyRequests;
     private JobHuntResult? _result;
 
+    // Search budget: user-selected effort (max searches) + an escalation applied by "Search harder".
+    private static readonly (string Label, int Value, string Hint)[] SearchEffortOptions =
+        [("Light", 4, "(4)"), ("Normal", 6, "(6)"), ("Deep", 10, "(10)")];
+    private int _searchEffort = 6;
+    private int _searchBoost;
+
     private const int PageSize = 5;
     private int _visibleCount = PageSize;
     private List<JobDossier> _dossiers = new();
@@ -652,6 +682,7 @@
         foreach (var source in inputs.Sources ?? [])
             _selectedSources.Add(source);
         _minMatchScore = Math.Clamp(inputs.MinMatchScore, 0, 100);
+        _searchEffort = SearchEffortOptions.Any(o => o.Value == inputs.SearchEffort) ? inputs.SearchEffort : 6;
         _postedWithin = PostedWithinOptions.Values.Contains(inputs.PostedWithin ?? "") ? inputs.PostedWithin ?? "" : "month";
         _fromDate = ParseDate(inputs.StartDate);
         _toDate = ParseDate(inputs.EndDate);
@@ -679,7 +710,8 @@
         PostedWithin: _postedWithin,
         StartDate: _fromDate?.ToString("yyyy-MM-dd"),
         EndDate: _toDate?.ToString("yyyy-MM-dd"),
-        Criteria: BuildOverrideCriteria());
+        Criteria: BuildOverrideCriteria(),
+        SearchEffort: _searchEffort);
 
     /// <summary>
     /// The reviewed/edited criteria to run with, or null if the user never analyzed. Persisted with
@@ -897,7 +929,21 @@
     private static string[] SplitCsv(string text) =>
         text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+    // Fresh search from the form: reset any "Search harder" escalation, then run.
     private async Task StartAsync()
+    {
+        _searchBoost = 0;
+        await RunHuntAsync();
+    }
+
+    // Re-run the same search with a bigger budget (more searches + more results), replacing results.
+    private async Task SearchHarderAsync()
+    {
+        _searchBoost++;
+        await RunHuntAsync();
+    }
+
+    private async Task RunHuntAsync()
     {
         if (_running)
             return;
@@ -930,15 +976,19 @@
         }
 
         var domains = SelectedDomains();
+        // "Search harder" escalates the budget each click: more searches AND a higher result target.
+        var maxSearches = _searchEffort + 4 * _searchBoost;
+        var baseResults = JobHuntConfig.Default.MaxResults + 6 * _searchBoost;
         // Give each selected site room to contribute: scale the target up with the number of sources.
         var maxResults = domains.Count > 1
-            ? Math.Min(20, JobHuntConfig.Default.MaxResults + 3 * (domains.Count - 1))
-            : JobHuntConfig.Default.MaxResults;
+            ? Math.Min(30, baseResults + 3 * (domains.Count - 1))
+            : baseResults;
         _lastMinScore = _minMatchScore;
         var config = JobHuntConfig.Default with
         {
             IncludeDomains = domains,
             MaxResults = maxResults,
+            MaxSearches = maxSearches,
             MinMatchScore = _minMatchScore,
             TimeRange = string.IsNullOrEmpty(_postedWithin) ? null : _postedWithin,
             StartDate = _fromDate?.ToString("yyyy-MM-dd"),

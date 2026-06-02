@@ -12,6 +12,7 @@ public sealed record JobHuntConfig(
     string? SalaryAnalysisModel = null,
     string? InterviewPrepModel = null,
     int MaxResults = 12,
+    int MaxSearches = 6,
     int MaxFanOutConcurrency = 3,
     int TopMatchesToExpand = 3,
     int MinMatchScore = 60,

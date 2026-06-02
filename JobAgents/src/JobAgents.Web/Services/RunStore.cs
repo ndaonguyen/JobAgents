@@ -18,7 +18,8 @@ public sealed record SearchInputs(
     string? PostedWithin = null,
     string? StartDate = null,
     string? EndDate = null,
-    SearchCriteria? Criteria = null)
+    SearchCriteria? Criteria = null,
+    int SearchEffort = 6)
 {
     public static SearchInputs Empty { get; } =
         new([], [], [], string.Empty, null, null, "USD", string.Empty, []);

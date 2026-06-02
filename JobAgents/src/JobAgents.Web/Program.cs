@@ -19,6 +19,7 @@ builder.Services
 var resultsDir = Path.Combine(builder.Environment.ContentRootPath, "results");
 builder.Services.AddSingleton(_ => new RunStore(resultsDir));
 builder.Services.AddSingleton(_ => new ProfileStore(resultsDir));
+builder.Services.AddSingleton(_ => new IdeaStore(resultsDir));
 
 // Resume file → text extraction (PDF / DOCX / TXT).
 builder.Services.AddSingleton<ResumeTextExtractor>();

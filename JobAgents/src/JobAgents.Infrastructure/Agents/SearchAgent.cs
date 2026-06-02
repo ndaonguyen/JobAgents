@@ -20,12 +20,13 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
         You are a job-sourcing agent. Use the Web.search_web tool to find real, currently-open job
         postings that match the candidate's criteria.
 
-        SEARCH HARD — aim to return the full requested number of DISTINCT postings:
-        - Call Web.search_web at least 4-6 times, ALWAYS passing maxResults: 10.
+        SEARCH STRATEGY — maximise DISTINCT postings within your search budget:
+        - The user prompt gives you a search BUDGET (a maximum number of searches). Use up to that
+          many Web.search_web calls — no more — ALWAYS passing maxResults: 10.
         - Vary each query: different role title synonyms, seniority levels, must-have skills,
           locations (city AND country), and work modes. Don't repeat the same query.
-        - After your searches, if you have fewer DISTINCT postings than requested, run MORE searches
-          with new angles before answering. Only stop early if extra searches clearly return nothing new.
+        - Spend the budget wisely on varied angles; stop once you hit the budget or extra searches
+          clearly return nothing new.
 
         When the location or sites are Vietnamese (e.g. itviec.com, vietnamworks.com, topcv.vn):
         - Query in BOTH English and Vietnamese (e.g. "lập trình viên backend", "kỹ sư phần mềm",
@@ -53,8 +54,9 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
     {
         var userPrompt =
             $"""
-            Find {config.MaxResults} DISTINCT job postings matching the criteria below. Aim for the
-            full {config.MaxResults} — run multiple varied searches (maxResults: 10 each) to get there.
+            Find up to {config.MaxResults} DISTINCT job postings matching the criteria below.
+            SEARCH BUDGET: run AT MOST {config.MaxSearches} searches (maxResults: 10 each), each a
+            different angle. Stop after {config.MaxSearches} searches and return what you found.
             - Roles: {Join(criteria.Roles)}
             - Locations: {Join(criteria.Locations)}
             - Seniority: {criteria.Seniority}

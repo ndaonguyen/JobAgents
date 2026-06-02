@@ -1,0 +1,187 @@
+@page "/roadmap"
+@rendermode InteractiveServer
+@inject IdeaStore Ideas
+
+<PageTitle>Roadmap · JobAgents</PageTitle>
+
+<div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+    <div>
+        <h1 class="mb-0">Roadmap</h1>
+        <p class="text-muted mb-0">
+            Future improvements for engineers to pick up. Capture an idea with a title and description.
+        </p>
+    </div>
+    <button class="btn btn-primary" @onclick="ToggleAdd">
+        <span class="me-1">@(_adding ? "✕" : "➕")</span> @(_adding ? "Close" : "New idea")
+    </button>
+</div>
+
+@if (_adding)
+{
+    <div class="card border-primary my-3">
+        <div class="card-body">
+            <div class="mb-2">
+                <label class="form-label fw-semibold">Title</label>
+                <input class="form-control" @bind="_newTitle" @bind:event="oninput"
+                       placeholder="Short summary of the improvement" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label fw-semibold">Description</label>
+                <textarea class="form-control" rows="5" @bind="_newDescription"
+                          placeholder="What should be built and why — context, acceptance criteria, links, affected files…"></textarea>
+            </div>
+            <button class="btn btn-primary" @onclick="AddAsync" disabled="@string.IsNullOrWhiteSpace(_newTitle)">
+                Save idea
+            </button>
+            <button type="button" class="btn btn-link" @onclick="CancelAdd">Cancel</button>
+        </div>
+    </div>
+}
+
+@if (_ideas.Count == 0)
+{
+    <div class="alert alert-light border mt-3">
+        No ideas yet. Click <strong>New idea</strong> to add the first one.
+    </div>
+}
+else
+{
+    <div class="mt-3">
+        @foreach (var idea in _ideas)
+        {
+            <div class="card mb-2">
+                <div class="card-body">
+                    @if (_editingId == idea.Id)
+                    {
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Title</label>
+                            <input class="form-control" @bind="_editTitle" @bind:event="oninput" />
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Description</label>
+                            <textarea class="form-control" rows="5" @bind="_editDescription"></textarea>
+                        </div>
+                        <button class="btn btn-primary btn-sm" @onclick="SaveEditAsync"
+                                disabled="@string.IsNullOrWhiteSpace(_editTitle)">Save</button>
+                        <button type="button" class="btn btn-link btn-sm" @onclick="CancelEdit">Cancel</button>
+                    }
+                    else
+                    {
+                        <div class="d-flex align-items-start justify-content-between gap-2">
+                            <h5 class="mb-1">@idea.Title</h5>
+                            <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                                <span class="badge @StatusClass(idea.Status)">@idea.Status</span>
+                                <select class="form-select form-select-sm" style="width:auto"
+                                        @onchange="e => UpdateStatusAsync(idea.Id, e.Value?.ToString())">
+                                    @foreach (var s in IdeaStore.Statuses)
+                                    {
+                                        <option value="@s" selected="@(s == idea.Status)">@s</option>
+                                    }
+                                </select>
+                                <button class="btn btn-sm btn-outline-secondary" title="Edit"
+                                        @onclick="() => BeginEdit(idea)">✏️</button>
+                                <button class="btn btn-sm btn-outline-danger" title="Delete"
+                                        @onclick="() => DeleteAsync(idea.Id)">🗑</button>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(idea.Description))
+                        {
+                            <p class="mb-1" style="white-space: pre-wrap;">@idea.Description</p>
+                        }
+                        <div class="small text-muted">Added @idea.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<ImprovementIdea> _ideas = new();
+    private bool _adding;
+    private string _newTitle = string.Empty;
+    private string _newDescription = string.Empty;
+
+    private string? _editingId;
+    private string _editTitle = string.Empty;
+    private string _editDescription = string.Empty;
+
+    protected override async Task OnInitializedAsync() => _ideas = await Ideas.LoadAllAsync();
+
+    private void ToggleAdd()
+    {
+        _adding = !_adding;
+        if (!_adding)
+            ClearForm();
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle))
+            return;
+
+        await Ideas.AddAsync(_newTitle, _newDescription);
+        ClearForm();
+        _adding = false;
+        _ideas = await Ideas.LoadAllAsync();
+    }
+
+    private void CancelAdd()
+    {
+        _adding = false;
+        ClearForm();
+    }
+
+    private void ClearForm()
+    {
+        _newTitle = string.Empty;
+        _newDescription = string.Empty;
+    }
+
+    private void BeginEdit(ImprovementIdea idea)
+    {
+        _editingId = idea.Id;
+        _editTitle = idea.Title;
+        _editDescription = idea.Description;
+    }
+
+    private void CancelEdit()
+    {
+        _editingId = null;
+        _editTitle = string.Empty;
+        _editDescription = string.Empty;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editingId is null || string.IsNullOrWhiteSpace(_editTitle))
+            return;
+
+        await Ideas.UpdateAsync(_editingId, _editTitle, _editDescription);
+        CancelEdit();
+        _ideas = await Ideas.LoadAllAsync();
+    }
+
+    private async Task UpdateStatusAsync(string id, string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return;
+
+        await Ideas.UpdateStatusAsync(id, status);
+        _ideas = await Ideas.LoadAllAsync();
+    }
+
+    private async Task DeleteAsync(string id)
+    {
+        await Ideas.DeleteAsync(id);
+        _ideas = await Ideas.LoadAllAsync();
+    }
+
+    private static string StatusClass(string status) => status switch
+    {
+        "Done" => "bg-success",
+        "In Progress" => "bg-primary",
+        "Planned" => "bg-info text-dark",
+        _ => "bg-secondary",
+    };
+}
