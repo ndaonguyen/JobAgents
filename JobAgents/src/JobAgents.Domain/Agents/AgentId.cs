@@ -16,6 +16,9 @@ public readonly record struct AgentId(string Value)
     /// <summary>The Search agent that sources live job postings.</summary>
     public static AgentId Search { get; } = new("search");
 
+    /// <summary>The standalone JD gap-analysis agent (resume vs a pasted job description).</summary>
+    public static AgentId JdAnalysis { get; } = new("jd-analysis");
+
     public static AgentId ResumeMatch(int index) => new($"resume-match-{index}");
 
     public static AgentId CompanyResearch(int index) => new($"company-research-{index}");

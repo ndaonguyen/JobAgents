@@ -39,6 +39,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IOrchestrator, Coordinator>();
         services.AddScoped<IMatchExpander, MatchExpander>();
 
+        // Standalone JD gap-analysis (separate from the job-hunt pipeline).
+        services.AddScoped<IJdAnalysisAgent, JdAnalysisAgent>();
+
         return services;
     }
 }
