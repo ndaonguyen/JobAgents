@@ -19,16 +19,19 @@ public sealed class Judge(IAgentRunner runner)
 
     private const string SystemPrompt =
         """
-        You are a strict evaluation judge. Given a candidate RESUME, the SKILLS an automated matcher
-        claimed the resume demonstrates, and the matcher's RATIONALE, decide whether every claim is
-        genuinely supported by the resume text. Return ONLY a JSON object:
-        { "grounded": boolean, "unsupported": string[], "note": string }
-        - "grounded" is true ONLY if every claimed skill and every factual statement in the rationale
-          is clearly supported by the resume.
-        - "unsupported" lists any claimed skills or rationale statements the resume does NOT support
-          (i.e. hallucinations).
-        - "note": one short sentence explaining your verdict.
-        Judge strictly against the resume text only; do not credit skills that aren't stated.
+        You are a strict evaluation judge detecting HALLUCINATIONS in an automated resume matcher.
+        You are given a candidate RESUME, the matcher's MATCHED SKILLS (skills it claims the resume
+        demonstrates), and its RATIONALE. A hallucination is any claim that the candidate HAS or
+        DEMONSTRATES a skill/experience that the resume does NOT actually support.
+        Return ONLY a JSON object: { "grounded": boolean, "unsupported": string[], "note": string }
+        Rules:
+        - Every entry in MATCHED SKILLS must be clearly evidenced in the resume; if not, it is unsupported.
+        - In the RATIONALE, ONLY flag statements asserting the candidate POSSESSES something the resume
+          lacks. DO NOT flag statements saying the candidate LACKS, is MISSING, has NO, or would need a
+          skill — those are correct gap observations, not hallucinations.
+        - "grounded" is true when there are no hallucinated possession-claims.
+        - "unsupported" lists only the hallucinated claims; "note" is one short sentence.
+        Judge strictly against the resume text only.
         """;
 
     public async Task<JudgeVerdict> AuditAsync(

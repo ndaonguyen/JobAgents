@@ -33,6 +33,15 @@ if (string.IsNullOrWhiteSpace(options.OpenAi.ApiKey))
     return 2;
 }
 
+// The matcher now runs on Claude by default (the judge still uses the OpenAI model above).
+if (string.IsNullOrWhiteSpace(options.Anthropic.ApiKey))
+{
+    Console.Error.WriteLine(
+        "No Anthropic API key found (the resume matcher runs on Claude). Set it via user-secrets " +
+        "(JobAgents:Anthropic:ApiKey) or the JobAgents__Anthropic__ApiKey environment variable.");
+    return 2;
+}
+
 var matcher = provider.GetRequiredService<IResumeMatchAgent>();
 var runner = provider.GetRequiredService<IAgentRunner>();
 var bus = provider.GetRequiredService<IAgentEventBus>();
@@ -53,24 +62,53 @@ var costReader = Task.Run(async () =>
     return (cost, tokens);
 });
 
-Console.WriteLine($"Running {GoldenCases.Matches.Count} match eval case(s) on model '{options.OpenAi.Model}'…\n");
+Console.WriteLine(
+    $"Running {GoldenCases.Matches.Count} match eval case(s) on matcher '{options.Anthropic.Model}' " +
+    $"(judge '{options.OpenAi.Model}')…\n");
+
+// LLMs are non-deterministic, so a single run can't separate signal from noise. Run each case
+// several times and aggregate (median score + majority vote) — the basis for trustworthy tuning.
+const int trials = 3;
+var majority = (trials / 2) + 1;
 
 var results = new List<CaseResult>();
 foreach (var c in GoldenCases.Matches)
 {
-    var match = await matcher.MatchAsync(evalRunId, 0, c.Resume, c.Posting, c.Criteria, JobHuntConfig.Default, default);
+    var scores = new List<int>();
+    int inBand = 0, skillsOk = 0, grounded = 0;
+    var sampleMatched = "(none)";
 
-    var scorePass = match.Score >= c.MinScore && match.Score <= c.MaxScore;
-    var matchedJoined = string.Join(" | ", match.MatchedSkills);
-    var missingSkills = c.ExpectedMatchedSkills
-        .Where(s => !matchedJoined.Contains(s, StringComparison.OrdinalIgnoreCase))
-        .ToArray();
-    var skillsPass = missingSkills.Length == 0;
+    for (var t = 0; t < trials; t++)
+    {
+        var match = await matcher.MatchAsync(evalRunId, t, c.Resume, c.Posting, c.Criteria, JobHuntConfig.Default, default);
+        scores.Add(match.Score);
+        if (match.Score >= c.MinScore && match.Score <= c.MaxScore)
+            inBand++;
 
-    var verdict = await judge.AuditAsync(
-        evalRunId, c.Resume, match.MatchedSkills, match.Rationale, model: null, default);
+        var matchedJoined = string.Join(" | ", match.MatchedSkills);
+        var allSkillsPresent = c.ExpectedMatchedSkills
+            .All(s => matchedJoined.Contains(s, StringComparison.OrdinalIgnoreCase));
+        if (allSkillsPresent)
+            skillsOk++;
 
-    results.Add(new CaseResult(c, match.Score, scorePass, missingSkills, skillsPass, verdict));
+        var verdict = await judge.AuditAsync(evalRunId, c.Resume, match.MatchedSkills, match.Rationale, null, default);
+        if (verdict.Grounded)
+            grounded++;
+
+        if (match.MatchedSkills.Count > 0)
+            sampleMatched = matchedJoined;
+    }
+
+    results.Add(new CaseResult(
+        c,
+        MedianScore: scores.OrderBy(s => s).ElementAt(scores.Count / 2),
+        Scores: scores,
+        InBand: inBand,
+        SkillsOk: skillsOk,
+        Grounded: grounded,
+        Trials: trials,
+        Majority: majority,
+        SampleMatched: sampleMatched));
 }
 
 // End the cost subscription cleanly (terminal System event flushes the FIFO reader).
@@ -78,20 +116,17 @@ await bus.PublishAsync(new AgentFinishedEvent(evalRunId, AgentId.System, "", 0, 
 var (totalCost, totalTokens) = await costReader;
 
 // ── Scorecard ──────────────────────────────────────────────────────────────────────────────────
-Console.WriteLine("Eval scorecard");
+Console.WriteLine($"Eval scorecard  ({trials} trials/case, majority = {majority})");
 Console.WriteLine(new string('─', 78));
 foreach (var r in results)
 {
     Console.WriteLine($"{(r.Passed ? "PASS" : "FAIL")}  {r.Case.Name}");
     Console.WriteLine(
-        $"      score {r.Score,3}  expected [{r.Case.MinScore}-{r.Case.MaxScore}]  {Mark(r.ScorePass)}");
+        $"      score median {r.MedianScore,3}  runs [{string.Join(",", r.Scores)}]  expected [{r.Case.MinScore}-{r.Case.MaxScore}]" +
+        $"  in-band {r.InBand}/{r.Trials} {Mark(r.ScorePass)}");
     if (r.Case.ExpectedMatchedSkills.Length > 0)
-        Console.WriteLine(
-            $"      skills {Mark(r.SkillsPass)}" +
-            (r.MissingSkills.Length > 0 ? $"  missing: {string.Join(", ", r.MissingSkills)}" : ""));
-    Console.WriteLine(
-        $"      grounded {Mark(r.Verdict.Grounded)}  {r.Verdict.Note}" +
-        (r.Verdict.Unsupported.Length > 0 ? $"  [unsupported: {string.Join(", ", r.Verdict.Unsupported)}]" : ""));
+        Console.WriteLine($"      skills {r.SkillsOk}/{r.Trials} {Mark(r.SkillsPass)}   e.g. matched: {r.SampleMatched}");
+    Console.WriteLine($"      grounded {r.Grounded}/{r.Trials} {Mark(r.GroundedPass)}");
     Console.WriteLine();
 }
 
@@ -105,11 +140,17 @@ static string Mark(bool ok) => ok ? "✓" : "✗";
 
 internal sealed record CaseResult(
     MatchCase Case,
-    int Score,
-    bool ScorePass,
-    string[] MissingSkills,
-    bool SkillsPass,
-    JudgeVerdict Verdict)
+    int MedianScore,
+    List<int> Scores,
+    int InBand,
+    int SkillsOk,
+    int Grounded,
+    int Trials,
+    int Majority,
+    string SampleMatched)
 {
-    public bool Passed => ScorePass && SkillsPass && Verdict.Grounded;
+    public bool ScorePass => InBand >= Majority;
+    public bool SkillsPass => Case.ExpectedMatchedSkills.Length == 0 || SkillsOk >= Majority;
+    public bool GroundedPass => Grounded >= Majority;
+    public bool Passed => ScorePass && SkillsPass && GroundedPass;
 }

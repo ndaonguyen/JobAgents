@@ -19,6 +19,11 @@ public sealed class ModelPricingCalculator : IUsageCalculator
         ("gpt-4.1-mini", new Price(0.40m, 1.60m)),
         ("gpt-4.1",     new Price(2.00m, 8.00m)),
         ("o4-mini",     new Price(1.10m, 4.40m)),
+        // Anthropic (Claude), per 1M tokens.
+        ("claude-haiku-4-5",  new Price(1.00m, 5.00m)),
+        ("claude-sonnet-4",   new Price(3.00m, 15.00m)),
+        ("claude-opus-4",     new Price(15.00m, 75.00m)),
+        ("claude-haiku",      new Price(1.00m, 5.00m)),
     ];
 
     public decimal? EstimateCostUsd(string model, int tokensIn, int tokensOut)

@@ -14,6 +14,9 @@ public interface IKernelFactory
     Kernel Create(string? modelOverride = null, bool includePlugins = true);
 
     string DefaultModel { get; }
+
+    /// <summary>True when the (possibly overridden) model resolves to an Anthropic/Claude model.</summary>
+    bool IsAnthropicModel(string? modelOverride = null);
 }
 
 public sealed class KernelFactory(
@@ -26,17 +29,40 @@ public sealed class KernelFactory(
     : IKernelFactory
 {
     private readonly OpenAiOptions _openAi = options.Value.OpenAi;
+    private readonly AnthropicOptions _anthropic = options.Value.Anthropic;
 
     public string DefaultModel => _openAi.Model;
+
+    public bool IsAnthropicModel(string? modelOverride = null) =>
+        IsClaude(modelOverride ?? _openAi.Model);
+
+    private static bool IsClaude(string model) =>
+        model.StartsWith("claude", StringComparison.OrdinalIgnoreCase);
 
     public Kernel Create(string? modelOverride = null, bool includePlugins = true)
     {
         var builder = Kernel.CreateBuilder();
 
-        builder.AddOpenAIChatCompletion(
-            modelId: modelOverride ?? _openAi.Model,
-            apiKey: _openAi.ApiKey,
-            httpClient: httpClientFactory.CreateClient("openai"));
+        var model = modelOverride ?? _openAi.Model;
+
+        // Claude is reached via Anthropic's OpenAI-compatible endpoint: same connector, the named
+        // "anthropic" HttpClient points at api.anthropic.com/v1 and carries the Anthropic key.
+        if (IsClaude(model))
+        {
+            var anthropicHttp = httpClientFactory.CreateClient("anthropic");
+            anthropicHttp.BaseAddress = new Uri(_anthropic.BaseUrl);
+            builder.AddOpenAIChatCompletion(
+                modelId: model,
+                apiKey: _anthropic.ApiKey,
+                httpClient: anthropicHttp);
+        }
+        else
+        {
+            builder.AddOpenAIChatCompletion(
+                modelId: model,
+                apiKey: _openAi.ApiKey,
+                httpClient: httpClientFactory.CreateClient("openai"));
+        }
 
         var kernel = builder.Build();
 

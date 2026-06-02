@@ -53,11 +53,13 @@ Key patterns (ported from ResearchAgents):
 
 ## Running it
 
-Requires the .NET 9 SDK, an **OpenAI** API key, and a **Tavily** API key (for web search).
+Requires the .NET 9 SDK, an **OpenAI** API key, an **Anthropic** API key (the resume matcher runs on
+Claude), and a **Tavily** API key (for web search).
 
 ```bash
 cd src/JobAgents.Web
 dotnet user-secrets set "JobAgents:OpenAi:ApiKey" "sk-..."
+dotnet user-secrets set "JobAgents:Anthropic:ApiKey" "sk-ant-..."
 dotnet user-secrets set "JobAgents:Tavily:ApiKey" "tvly-..."
 dotnet run
 ```
@@ -71,7 +73,10 @@ stream Coordinator → Search → Resume Matching → Company / Salary / Intervi
 appear on the right. Finished runs are saved to `src/JobAgents.Web/results/ui-*.jsonl` and listed on
 **/past-runs**.
 
-The default model is `gpt-4o-mini` (configurable under `JobAgents:OpenAi:Model`).
+The default model is `gpt-4o-mini` (configurable under `JobAgents:OpenAi:Model`). The **resume
+matcher** runs on Claude `claude-haiku-4-5` by default (configurable under `JobAgents:Anthropic:Model`);
+any agent whose model id starts with `claude` is routed to Anthropic's OpenAI-compatible endpoint,
+everything else stays on OpenAI.
 
 ## Tests
 

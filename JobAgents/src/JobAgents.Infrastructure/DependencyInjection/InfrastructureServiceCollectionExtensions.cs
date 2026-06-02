@@ -19,6 +19,7 @@ public static class InfrastructureServiceCollectionExtensions
             .Bind(configuration.GetSection(JobAgentsOptions.SectionName));
 
         services.AddHttpClient("openai");
+        services.AddHttpClient("anthropic");
         services.AddHttpClient("tavily");
 
         // Run infrastructure (shared, stateless).

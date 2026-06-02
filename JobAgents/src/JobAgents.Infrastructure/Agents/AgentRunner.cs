@@ -70,7 +70,9 @@ public sealed class AgentRunner(
         };
 
         // Force a valid JSON object from models that support it (used for non-tool structured agents).
-        if (jsonMode)
+        // Anthropic's OpenAI-compatible endpoint doesn't honour response_format: json_object, so for
+        // Claude we rely on the prompt's "return ONLY JSON" instruction + the tolerant AgentJson parser.
+        if (jsonMode && !kernelFactory.IsAnthropicModel(modelOverride))
             settings.ResponseFormat = "json_object";
 
         await bus.PublishAsync(new AgentStartedEvent(runId, agentId, role, DateTime.UtcNow), ct);
