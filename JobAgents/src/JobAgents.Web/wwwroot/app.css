@@ -15,6 +15,15 @@ html, body {
     }
 }
 
+/* Keep both panes from overflowing the viewport: flex items default to min-width:auto,
+   which lets long content (URLs, titles, code) push the column wider than its share and
+   force a horizontal scrollbar. min-width:0 + word wrapping makes them fit the screen. */
+.search-pane,
+.result-pane {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 a, .btn-link {
     color: #006bb7;
 }

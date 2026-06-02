@@ -648,6 +648,14 @@
         _postedWithin = PostedWithinOptions.Values.Contains(inputs.PostedWithin ?? "") ? inputs.PostedWithin ?? "" : "month";
         _fromDate = ParseDate(inputs.StartDate);
         _toDate = ParseDate(inputs.EndDate);
+
+        // Restore the reviewed/edited criteria panel if the previous run used one.
+        _criteria = inputs.Criteria;
+        _mustHaveText = inputs.Criteria is null ? string.Empty : string.Join(", ", inputs.Criteria.MustHaveSkills);
+        _niceToHaveText = inputs.Criteria is null ? string.Empty : string.Join(", ", inputs.Criteria.NiceToHaveSkills);
+        _editWorkStyles.Clear();
+        foreach (var style in inputs.Criteria?.WorkStyles ?? [])
+            _editWorkStyles.Add(style);
     }
 
     private SearchInputs CurrentInputs() => new(
@@ -663,7 +671,22 @@
         MinMatchScore: _minMatchScore,
         PostedWithin: _postedWithin,
         StartDate: _fromDate?.ToString("yyyy-MM-dd"),
-        EndDate: _toDate?.ToString("yyyy-MM-dd"));
+        EndDate: _toDate?.ToString("yyyy-MM-dd"),
+        Criteria: BuildOverrideCriteria());
+
+    /// <summary>
+    /// The reviewed/edited criteria to run with, or null if the user never analyzed. Persisted with
+    /// the run so reloading a previous search restores the edited must-have / nice-to-have / work modes.
+    /// </summary>
+    private SearchCriteria? BuildOverrideCriteria() =>
+        _criteria is null
+            ? null
+            : _criteria with
+            {
+                MustHaveSkills = SplitCsv(_mustHaveText),
+                NiceToHaveSkills = SplitCsv(_niceToHaveText),
+                WorkStyles = WorkingStyleOptions.Where(_editWorkStyles.Contains).ToArray(),
+            };
 
     /// <summary>A short, scannable title summarising the key search points.</summary>
     private static string BuildTitle(SearchInputs i)
@@ -915,14 +938,8 @@
         };
 
         // If the user reviewed/edited the parsed criteria, run with their edits (skips re-parsing).
-        SearchCriteria? overrideCriteria = _criteria is null
-            ? null
-            : _criteria with
-            {
-                MustHaveSkills = SplitCsv(_mustHaveText),
-                NiceToHaveSkills = SplitCsv(_niceToHaveText),
-                WorkStyles = WorkingStyleOptions.Where(_editWorkStyles.Contains).ToArray(),
-            };
+        // Captured in CurrentInputs() above so it's also persisted with the run.
+        var overrideCriteria = _lastInputs.Criteria;
 
         try
         {

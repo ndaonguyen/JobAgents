@@ -31,7 +31,7 @@ public sealed class JobSearchPlugin(
     [Description("Searches the web for live results. Use it to find job postings or research companies.")]
     public async Task<string> SearchWebAsync(
         [Description("The search query, e.g. 'senior .NET engineer remote London'")] string query,
-        [Description("Maximum number of results to return (1-10)")] int maxResults = 5,
+        [Description("Maximum number of results to return (1-10). Prefer 10 when sourcing jobs.")] int maxResults = 10,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(_tavily.ApiKey))
@@ -87,7 +87,7 @@ public sealed class JobSearchPlugin(
         {
             r.Title,
             r.Url,
-            Content = Truncate(r.Content, 600),
+            Content = Truncate(r.Content, 400),
             PublishedDate = r.PublishedDate,
         });
         return JsonSerializer.Serialize(projected, JsonOptions);

@@ -18,8 +18,14 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
     private const string SystemPrompt =
         """
         You are a job-sourcing agent. Use the Web.search_web tool to find real, currently-open job
-        postings that match the candidate's criteria. Run SEVERAL focused searches (vary role,
-        location and seniority) and call the tool multiple times before answering.
+        postings that match the candidate's criteria.
+
+        SEARCH HARD — aim to return the full requested number of DISTINCT postings:
+        - Call Web.search_web at least 4-6 times, ALWAYS passing maxResults: 10.
+        - Vary each query: different role title synonyms, seniority levels, must-have skills,
+          locations (city AND country), and work modes. Don't repeat the same query.
+        - After your searches, if you have fewer DISTINCT postings than requested, run MORE searches
+          with new angles before answering. Only stop early if extra searches clearly return nothing new.
 
         When the location or sites are Vietnamese (e.g. itviec.com, vietnamworks.com, topcv.vn):
         - Query in BOTH English and Vietnamese (e.g. "lập trình viên backend", "kỹ sư phần mềm",
@@ -47,7 +53,8 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
     {
         var userPrompt =
             $"""
-            Find up to {config.MaxResults} job postings matching:
+            Find {config.MaxResults} DISTINCT job postings matching the criteria below. Aim for the
+            full {config.MaxResults} — run multiple varied searches (maxResults: 10 each) to get there.
             - Roles: {Join(criteria.Roles)}
             - Locations: {Join(criteria.Locations)}
             - Seniority: {criteria.Seniority}
