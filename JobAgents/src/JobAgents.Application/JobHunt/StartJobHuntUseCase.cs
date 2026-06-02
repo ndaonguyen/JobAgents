@@ -1,6 +1,7 @@
 using JobAgents.Application.Abstractions;
 using JobAgents.Domain.Agents;
 using JobAgents.Domain.Events;
+using JobAgents.Domain.JobHunt;
 using JobAgents.Domain.Runs;
 using Microsoft.Extensions.Logging;
 
@@ -16,15 +17,30 @@ public sealed class StartJobHuntUseCase(
     IAgentEventBus bus,
     ILogger<StartJobHuntUseCase> logger)
 {
-    public (RunId RunId, IAsyncEnumerable<AgentEvent> Events) Start(
+    /// <summary>
+    /// Parses the resume + preferences into structured criteria (must-have / nice-to-have skills,
+    /// work modes, etc.) so the UI can show them for review/editing before the search is launched.
+    /// </summary>
+    public Task<SearchCriteria> AnalyzeAsync(
         string resumeText,
         string preferences,
         JobHuntConfig? config = null,
         CancellationToken ct = default)
     {
+        var request = new AgentRunRequest(RunId.New(), resumeText, preferences);
+        return orchestrator.ParseCriteriaAsync(request, config ?? JobHuntConfig.Default, ct);
+    }
+
+    public (RunId RunId, IAsyncEnumerable<AgentEvent> Events) Start(
+        string resumeText,
+        string preferences,
+        JobHuntConfig? config = null,
+        SearchCriteria? criteria = null,
+        CancellationToken ct = default)
+    {
         var runId = RunId.New();
         var events = bus.SubscribeAsync(runId, ct);
-        var request = new AgentRunRequest(runId, resumeText, preferences);
+        var request = new AgentRunRequest(runId, resumeText, preferences, criteria);
 
         _ = Task.Run(async () =>
         {

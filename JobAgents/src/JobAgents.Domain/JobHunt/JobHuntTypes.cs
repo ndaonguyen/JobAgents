@@ -9,12 +9,12 @@ public sealed record SearchCriteria(
     string Seniority,
     IReadOnlyList<string> MustHaveSkills,
     IReadOnlyList<string> NiceToHaveSkills,
-    bool RemoteOnly,
+    IReadOnlyList<string> WorkStyles,
     string? SalaryExpectation)
 {
     public static SearchCriteria Empty { get; } = new(
         Array.Empty<string>(), Array.Empty<string>(), string.Empty,
-        Array.Empty<string>(), Array.Empty<string>(), false, null);
+        Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), null);
 }
 
 /// <summary>A single job posting sourced by the Search agent.</summary>

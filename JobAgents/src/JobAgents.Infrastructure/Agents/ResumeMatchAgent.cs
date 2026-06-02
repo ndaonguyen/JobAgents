@@ -54,7 +54,7 @@ public sealed class ResumeMatchAgent(IAgentRunner runner) : IResumeMatchAgent
             - Seniority: {Or(criteria.Seniority)}
             - Must-have skills: {Join(criteria.MustHaveSkills)}
             - Nice-to-have skills: {Join(criteria.NiceToHaveSkills)}
-            - Remote only: {criteria.RemoteOnly}
+            - Work modes: {Join(criteria.WorkStyles)}
 
             JOB POSTING:
             Title: {posting.Title}

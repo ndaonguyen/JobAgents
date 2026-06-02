@@ -1,0 +1,236 @@
+@page "/jd-analyzer"
+@rendermode InteractiveServer
+@using JobAgents.Domain.Runs
+@inject ProfileStore Profile
+@inject IJdAnalysisAgent Analyzer
+
+<PageTitle>JD Analyzer · JobAgents</PageTitle>
+
+<h1>JD Analyzer</h1>
+<p class="text-muted">
+    Paste a job description and analyse it against your CV — match score, strengths, gaps, and
+    advice for tailoring your application. This is a one-off analysis; nothing is saved.
+</p>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <label class="form-label fw-semibold">Your CV</label>
+        @if (_cvFromProfile)
+        {
+            <div class="form-text mb-1">Loaded from your saved profile — edit below to analyse a different CV.</div>
+        }
+        else
+        {
+            <div class="form-text mb-1">No saved profile found — paste your CV here.</div>
+        }
+        <textarea class="form-control" rows="12" @bind="_resumeText" @bind:event="oninput"
+                  placeholder="Paste your CV / resume text…"></textarea>
+    </div>
+
+    <div class="col-lg-6">
+        <label class="form-label fw-semibold">Job description</label>
+        <div class="form-text mb-1">Paste the full JD — responsibilities, requirements, must-have skills.</div>
+        <textarea class="form-control" rows="12" @bind="_jobDescription" @bind:event="oninput"
+                  placeholder="Paste the job description here…"></textarea>
+    </div>
+</div>
+
+<div class="d-flex align-items-center gap-3 mt-3">
+    <button class="btn btn-primary" @onclick="AnalyzeAsync" disabled="@(!CanAnalyze)">
+        @if (_running)
+        {
+            <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+            <span>Analysing…</span>
+        }
+        else
+        {
+            <span>Analyse gap</span>
+        }
+    </button>
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <span class="text-danger">@_error</span>
+    }
+</div>
+
+@if (_result is not null)
+{
+    var r = _result;
+    <hr class="my-4" />
+
+    <div class="d-flex align-items-center gap-3 mb-3">
+        <span class="badge fs-5 @ScoreClass(r.OverallScore)">@r.OverallScore/100</span>
+        <h4 class="mb-0">@r.Verdict</h4>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(r.Summary))
+    {
+        <div class="alert alert-info">@r.Summary</div>
+    }
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header fw-semibold">✅ Matched strengths</div>
+                <div class="card-body">
+                    @if (r.MatchedStrengths.Count == 0)
+                    {
+                        <p class="text-muted mb-0">None identified.</p>
+                    }
+                    else
+                    {
+                        <ul class="mb-0">
+                            @foreach (var s in r.MatchedStrengths)
+                            {
+                                <li>@s</li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header fw-semibold">⚠️ Gaps</div>
+                <div class="card-body">
+                    @if (r.Gaps.Count == 0)
+                    {
+                        <p class="text-muted mb-0">No significant gaps found.</p>
+                    }
+                    else
+                    {
+                        <ul class="list-unstyled mb-0">
+                            @foreach (var g in r.Gaps)
+                            {
+                                <li class="mb-2">
+                                    <span class="badge me-1 @SeverityClass(g.Severity)">@g.Severity</span>
+                                    <strong>@g.Requirement</strong>
+                                    @if (!string.IsNullOrWhiteSpace(g.Advice))
+                                    {
+                                        <div class="small text-muted">@g.Advice</div>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (r.MissingKeywords.Count > 0)
+    {
+        <div class="mt-4">
+            <h6>Missing keywords</h6>
+            @foreach (var k in r.MissingKeywords)
+            {
+                <span class="badge bg-light text-dark border me-1 mb-1">@k</span>
+            }
+        </div>
+    }
+
+    <div class="row g-4 mt-1">
+        @if (r.CvSuggestions.Count > 0)
+        {
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header fw-semibold">✍️ Tailor your CV</div>
+                    <div class="card-body">
+                        <ul class="mb-0">
+                            @foreach (var s in r.CvSuggestions)
+                            {
+                                <li>@s</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (r.InterviewTalkingPoints.Count > 0)
+        {
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header fw-semibold">🎤 Interview talking points</div>
+                    <div class="card-body">
+                        <ul class="mb-0">
+                            @foreach (var p in r.InterviewTalkingPoints)
+                            {
+                                <li>@p</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private string _resumeText = string.Empty;
+    private string _jobDescription = string.Empty;
+    private bool _cvFromProfile;
+    private bool _running;
+    private string? _error;
+    private JdAnalysis? _result;
+
+    private bool CanAnalyze =>
+        !_running
+        && !string.IsNullOrWhiteSpace(_resumeText)
+        && !string.IsNullOrWhiteSpace(_jobDescription);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var profile = await Profile.LoadAsync();
+        if (profile is not null && !string.IsNullOrWhiteSpace(profile.ResumeText))
+        {
+            _resumeText = profile.ResumeText;
+            _cvFromProfile = true;
+        }
+    }
+
+    private async Task AnalyzeAsync()
+    {
+        if (!CanAnalyze)
+            return;
+
+        _running = true;
+        _error = null;
+        _result = null;
+
+        try
+        {
+            var analysis = await Analyzer.AnalyzeAsync(
+                RunId.New(), _resumeText, _jobDescription, modelOverride: null, CancellationToken.None);
+
+            if (analysis.OverallScore == 0 && analysis.Gaps.Count == 0 && analysis.MatchedStrengths.Count == 0)
+                _error = "The analyzer didn't return a usable result. Please try again.";
+            else
+                _result = analysis;
+        }
+        catch (Exception ex)
+        {
+            _error = $"Analysis failed: {ex.Message}";
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+
+    private static string ScoreClass(int score) => score switch
+    {
+        >= 85 => "bg-success",
+        >= 70 => "bg-primary",
+        >= 60 => "bg-warning text-dark",
+        _ => "bg-danger",
+    };
+
+    private static string SeverityClass(string severity) => severity switch
+    {
+        "critical" => "bg-danger",
+        "minor" => "bg-secondary",
+        _ => "bg-warning text-dark",
+    };
+}

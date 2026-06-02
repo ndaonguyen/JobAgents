@@ -37,9 +37,18 @@ public sealed class Coordinator(
         context.StartDate = config.StartDate;
         context.EndDate = config.EndDate;
 
-        // 1. Parse criteria.
-        var (criteria, criteriaUsage) = await ParseCriteriaAsync(request, config, ct);
-        usage = usage.Add(criteriaUsage);
+        // 1. Parse criteria — unless the caller already supplied (user-edited) criteria.
+        SearchCriteria criteria;
+        if (request.Criteria is not null)
+        {
+            criteria = request.Criteria;
+        }
+        else
+        {
+            var (parsed, criteriaUsage) = await ParseCriteriaCoreAsync(request, config, ct);
+            criteria = parsed;
+            usage = usage.Add(criteriaUsage);
+        }
 
         // 2. Search for postings.
         var postings = Dedupe(await searchAgent.FindJobsAsync(runId, criteria, config, ct));
@@ -97,7 +106,15 @@ public sealed class Coordinator(
             runId, postings.Count, dossiers.Count);
     }
 
-    private async Task<(SearchCriteria, AgentUsage)> ParseCriteriaAsync(
+    /// <summary>Parses the candidate's resume + preferences into structured criteria (no search run).</summary>
+    public async Task<SearchCriteria> ParseCriteriaAsync(
+        AgentRunRequest request, JobHuntConfig config, CancellationToken ct = default)
+    {
+        var (criteria, _) = await ParseCriteriaCoreAsync(request, config, ct);
+        return criteria;
+    }
+
+    private async Task<(SearchCriteria, AgentUsage)> ParseCriteriaCoreAsync(
         AgentRunRequest request, JobHuntConfig config, CancellationToken ct)
     {
         const string systemPrompt =
@@ -110,10 +127,12 @@ public sealed class Coordinator(
               "seniority": string,
               "mustHaveSkills": string[],
               "niceToHaveSkills": string[],
-              "remoteOnly": boolean,
+              "workStyles": string[],
               "salaryExpectation": string or null
             }
-            Infer sensible values from the resume when preferences are vague.
+            "workStyles" is any of "Onsite", "Hybrid", "Remote" the candidate would accept (include all
+            that apply; empty means no preference). Infer sensible values from the resume when
+            preferences are vague.
             """;
 
         var userPrompt =

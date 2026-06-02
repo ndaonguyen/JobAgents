@@ -1,15 +1,9 @@
+using JobAgents.Application.Abstractions;
 using JobAgents.Domain.Agents;
 using JobAgents.Domain.Analysis;
 using JobAgents.Domain.Runs;
 
 namespace JobAgents.Infrastructure.Agents;
-
-public interface IJdAnalysisAgent
-{
-    /// <summary>Analyses one resume against one pasted job description (no web tools, single LLM turn).</summary>
-    Task<JdAnalysis> AnalyzeAsync(
-        RunId runId, string resumeText, string jobDescription, string? modelOverride, CancellationToken ct);
-}
 
 /// <summary>
 /// Standalone gap-analysis agent. Unlike the job-hunt <see cref="ResumeMatchAgent"/> (which scores

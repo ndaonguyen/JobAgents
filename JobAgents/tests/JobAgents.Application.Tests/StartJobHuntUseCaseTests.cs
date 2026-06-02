@@ -56,5 +56,9 @@ public class StartJobHuntUseCaseTests
     {
         public Task RunAsync(Domain.Agents.AgentRunRequest request, JobHuntConfig config, CancellationToken ct = default)
             => body(request, ct);
+
+        public Task<Domain.JobHunt.SearchCriteria> ParseCriteriaAsync(
+            Domain.Agents.AgentRunRequest request, JobHuntConfig config, CancellationToken ct = default)
+            => Task.FromResult(Domain.JobHunt.SearchCriteria.Empty);
     }
 }

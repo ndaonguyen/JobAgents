@@ -1,4 +1,5 @@
 using JobAgents.Domain.Agents;
+using JobAgents.Domain.JobHunt;
 
 namespace JobAgents.Application.Abstractions;
 
@@ -10,4 +11,11 @@ namespace JobAgents.Application.Abstractions;
 public interface IOrchestrator
 {
     Task RunAsync(AgentRunRequest request, JobHuntConfig config, CancellationToken ct = default);
+
+    /// <summary>
+    /// Parses the resume + preferences into structured criteria without running a search. Lets the UI
+    /// show the inferred must-have / nice-to-have skills and work modes for the user to edit before
+    /// kicking off the full run.
+    /// </summary>
+    Task<SearchCriteria> ParseCriteriaAsync(AgentRunRequest request, JobHuntConfig config, CancellationToken ct = default);
 }

@@ -268,6 +268,55 @@
                               placeholder="e.g. fintech or health domains, no on-call, visa sponsorship"></textarea>
                 </div>
             </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <button type="button" class="btn btn-outline-primary"
+                        @onclick="AnalyzeAsync"
+                        disabled="@(_running || _analyzing || string.IsNullOrWhiteSpace(_resume))">
+                    @if (_analyzing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        <span>Analyzing…</span>
+                    }
+                    else
+                    {
+                        <span>Analyze criteria</span>
+                    }
+                </button>
+                <span class="text-muted small">Optional — review the inferred skills &amp; work modes before searching.</span>
+            </div>
+
+            @if (_criteria is not null)
+            {
+                <div class="card border-primary mb-3">
+                    <div class="card-body py-2">
+                        <h6 class="card-title mb-2">Review &amp; edit criteria</h6>
+                        <div class="mb-2">
+                            <label class="form-label small mb-0">Must-have skills <span class="text-muted">(comma-separated)</span></label>
+                            <input class="form-control form-control-sm" @bind="_mustHaveText"
+                                   placeholder="e.g. C#, .NET, Kafka, AWS" />
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small mb-0">Nice-to-have skills <span class="text-muted">(comma-separated)</span></label>
+                            <input class="form-control form-control-sm" @bind="_niceToHaveText"
+                                   placeholder="e.g. GraphQL, Terraform" />
+                        </div>
+                        <div>
+                            <label class="form-label small mb-0 d-block">Work mode</label>
+                            @foreach (var style in WorkingStyleOptions)
+                            {
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="@($"wm-{style}")"
+                                           checked="@_editWorkStyles.Contains(style)"
+                                           @onchange="e => ToggleEditWorkStyle(style, (bool)e.Value!)" />
+                                    <label class="form-check-label" for="@($"wm-{style}")">@style</label>
+                                </div>
+                            }
+                        </div>
+                        <div class="form-text">Searching uses these criteria. Change the form above and Analyze again to refresh.</div>
+                    </div>
+                </div>
+            }
+
             <button type="submit" class="btn btn-primary" disabled="@(_running || string.IsNullOrWhiteSpace(_resume))">
                 @if (_running)
                 {
@@ -276,7 +325,7 @@
                 }
                 else
                 {
-                    <span>Find jobs</span>
+                    <span>@(_criteria is not null ? "Search with these" : "Find jobs")</span>
                 }
             </button>
             @if (_cost is { } cost)
@@ -405,6 +454,13 @@
     private bool _savedCvExists;
     private string? _profileStatus;
     private bool _running;
+
+    // Two-step "Analyze → review/edit criteria → Search" state.
+    private bool _analyzing;
+    private SearchCriteria? _criteria;
+    private string _mustHaveText = string.Empty;
+    private string _niceToHaveText = string.Empty;
+    private readonly HashSet<string> _editWorkStyles = new();
 
     // Structured preferences.
     private readonly HashSet<string> _selectedRoles = new();
@@ -764,6 +820,53 @@
         return string.Join('\n', lines);
     }
 
+    /// <summary>
+    /// Parses the resume + preferences into criteria and surfaces the must-have / nice-to-have skills
+    /// and work modes for the user to review and edit before launching the search.
+    /// </summary>
+    private async Task AnalyzeAsync()
+    {
+        if (_analyzing || _running || string.IsNullOrWhiteSpace(_resume))
+            return;
+
+        _analyzing = true;
+        _error = null;
+        try
+        {
+            var criteria = await JobHunt.AnalyzeAsync(_resume, BuildPreferences(), null, CancellationToken.None);
+            _criteria = criteria;
+            _mustHaveText = string.Join(", ", criteria.MustHaveSkills);
+            _niceToHaveText = string.Join(", ", criteria.NiceToHaveSkills);
+
+            _editWorkStyles.Clear();
+            foreach (var style in criteria.WorkStyles)
+                _editWorkStyles.Add(style);
+            // Fall back to the form's work-mode selection if the model inferred none.
+            if (_editWorkStyles.Count == 0)
+                foreach (var style in WorkingStyleOptions.Where(_workingStyles.Contains))
+                    _editWorkStyles.Add(style);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Couldn't analyze criteria: {ex.Message}";
+        }
+        finally
+        {
+            _analyzing = false;
+        }
+    }
+
+    private void ToggleEditWorkStyle(string style, bool selected)
+    {
+        if (selected)
+            _editWorkStyles.Add(style);
+        else
+            _editWorkStyles.Remove(style);
+    }
+
+    private static string[] SplitCsv(string text) =>
+        text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     private async Task StartAsync()
     {
         if (_running)
@@ -811,9 +914,19 @@
             EndDate = _toDate?.ToString("yyyy-MM-dd"),
         };
 
+        // If the user reviewed/edited the parsed criteria, run with their edits (skips re-parsing).
+        SearchCriteria? overrideCriteria = _criteria is null
+            ? null
+            : _criteria with
+            {
+                MustHaveSkills = SplitCsv(_mustHaveText),
+                NiceToHaveSkills = SplitCsv(_niceToHaveText),
+                WorkStyles = WorkingStyleOptions.Where(_editWorkStyles.Contains).ToArray(),
+            };
+
         try
         {
-            var (_, events) = JobHunt.Start(_resume, _lastPreferences, config, _cts.Token);
+            var (_, events) = JobHunt.Start(_resume, _lastPreferences, config, overrideCriteria, _cts.Token);
 
             await foreach (var evt in events.WithCancellation(_cts.Token))
             {

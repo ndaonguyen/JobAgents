@@ -52,7 +52,7 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
             - Locations: {Join(criteria.Locations)}
             - Seniority: {criteria.Seniority}
             - Must-have skills: {Join(criteria.MustHaveSkills)}
-            - Remote only: {criteria.RemoteOnly}
+            - Work modes: {Join(criteria.WorkStyles)} (include roles offering ANY of these modes)
             """;
 
         var result = await runner.RunAsync(
