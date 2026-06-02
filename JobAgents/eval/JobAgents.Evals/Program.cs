@@ -24,6 +24,11 @@ services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
 services.AddInfrastructure(config);
 using var provider = services.BuildServiceProvider();
 
+// Optional sub-command: `dotnet run -- search-ab` runs the Search agent URL-wording A/B instead of
+// the matcher eval. It drives live web search, so it's opt-in rather than part of the default run.
+if (args.Length > 0 && string.Equals(args[0], "search-ab", StringComparison.OrdinalIgnoreCase))
+    return await SearchAb.RunAsync(provider);
+
 var options = provider.GetRequiredService<IOptions<JobAgentsOptions>>().Value;
 if (string.IsNullOrWhiteSpace(options.OpenAi.ApiKey))
 {

@@ -13,9 +13,12 @@ public interface ISearchAgent
 }
 
 /// <summary>Sources live job postings by driving the Tavily web-search tool from the search criteria.</summary>
-public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger) : ISearchAgent
+public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger, string? systemPrompt = null)
+    : ISearchAgent
 {
-    private const string SystemPrompt =
+    // The system prompt is composed from a fixed head/tail plus a swappable URL-quality block, so an
+    // eval can A/B alternative wordings of just that block without forking the whole prompt.
+    private const string PromptHead =
         """
         You are a job-sourcing agent. Use the Web.search_web tool to find real, currently-open job
         postings that match the candidate's criteria.
@@ -35,7 +38,11 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
           "Ho Chi Minh City" / "Hà Nội").
 
         Prefer recently-posted roles; skip listings that are clearly expired or stale.
+        """;
 
+    /// <summary>The current production wording of the URL-quality guidance (a preference + a "don't drop" guard).</summary>
+    public const string DefaultUrlQualityBlock =
+        """
         URL QUALITY: PREFER a "url" that points to ONE specific job's own detail page (a page a user can
         open to read and apply to that single role) over a job-board search/listing/category page that
         enumerates many jobs (e.g. TopCV "tim-viec-lam-…"/"…-kl<number>", ITviec "/it-jobs",
@@ -44,7 +51,10 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
         page — these boards (TopCV/ITviec/VietnamWorks) are JS-heavy and often only expose listing URLs,
         and the UI labels such links so the user isn't misled. Finding the role is more important than a
         perfect URL.
+        """;
 
+    private const string PromptTail =
+        """
         Then return ONLY a JSON array of the best DISTINCT postings (dedupe by company+title), each:
         { "title": string, "company": string, "location": string, "url": string, "summary": string,
           "postedDate": string or null, "description": string }
@@ -57,6 +67,15 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
         invent postings, URLs, or requirements; only include details grounded in the search tool
         output. Return at most the requested number.
         """;
+
+    /// <summary>Composes the full system prompt around a given URL-quality block.</summary>
+    public static string BuildSystemPrompt(string urlQualityBlock) =>
+        $"{PromptHead}\n\n{urlQualityBlock}\n\n{PromptTail}";
+
+    /// <summary>The default production system prompt.</summary>
+    public static readonly string DefaultSystemPrompt = BuildSystemPrompt(DefaultUrlQualityBlock);
+
+    private readonly string _systemPrompt = systemPrompt ?? DefaultSystemPrompt;
 
     public async Task<IReadOnlyList<JobPosting>> FindJobsAsync(
         RunId runId, SearchCriteria criteria, JobHuntConfig config, CancellationToken ct)
@@ -75,7 +94,7 @@ public sealed class SearchAgent(IAgentRunner runner, ILogger<SearchAgent> logger
 
         var result = await runner.RunAsync(
             runId, AgentId.Search, "Search",
-            SystemPrompt, userPrompt, config.SearchModel, useTools: true, ct);
+            _systemPrompt, userPrompt, config.SearchModel, useTools: true, ct);
 
         var postings = AgentJson.TryParse<List<JobPosting>>(result.Text) ?? [];
         if (postings.Count == 0)

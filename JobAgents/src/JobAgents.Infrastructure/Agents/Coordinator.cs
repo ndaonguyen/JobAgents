@@ -83,10 +83,15 @@ public sealed class Coordinator(
         var toExpand = qualifying.Take(config.TopMatchesToExpand).ToList();
         var companyResearch = new System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<CompanyInsight?>>>(
             StringComparer.OrdinalIgnoreCase);
+        // Salary depends on role + location + seniority, NOT the employer, so two top matches for the
+        // same role in the same place share one lookup (and its Tavily calls) instead of repeating the
+        // identical market-data search. Same dedupe pattern as companyResearch above.
+        var salaryResearch = new System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<SalaryEstimate?>>>(
+            StringComparer.OrdinalIgnoreCase);
         var expanded = await FanOutAsync(
             toExpand,
             config.MaxFanOutConcurrency,
-            async (match, index) => await ExpandAsync(runId, index, match, criteria, config, companyResearch, ct),
+            async (match, index) => await ExpandAsync(runId, index, match, criteria, config, companyResearch, salaryResearch, ct),
             ct);
 
         // …and include the remaining qualifying matches as match-only dossiers (cheap, no extra agents).
@@ -166,6 +171,7 @@ public sealed class Coordinator(
     private async Task<JobDossier> ExpandAsync(
         RunId runId, int index, JobMatch match, SearchCriteria criteria, JobHuntConfig config,
         System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<CompanyInsight?>>> companyResearch,
+        System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<SalaryEstimate?>>> salaryResearch,
         CancellationToken ct)
     {
         var posting = match.Posting;
@@ -177,8 +183,17 @@ public sealed class Coordinator(
             _ => new Lazy<Task<CompanyInsight?>>(() => Run(
                 () => companyResearchAgent.ResearchAsync(runId, index, company, config, ct),
                 ev => new CompanyResearchedEvent(runId, AgentId.CompanyResearch(index), ev, DateTime.UtcNow)))).Value;
-        var salaryTask = Run(() => salaryAnalysisAgent.AnalyzeAsync(runId, index, posting, criteria, config, ct),
-            ev => new SalaryAnalyzedEvent(runId, AgentId.SalaryAnalysis(index), ev, DateTime.UtcNow));
+        // Analyse each distinct role+location+seniority once; market rate is company-independent, so
+        // matches that share those three await the same task instead of re-searching for the range.
+        var salaryKey = string.Join('|',
+            (posting.Title ?? string.Empty).Trim().ToLowerInvariant(),
+            (posting.Location ?? string.Empty).Trim().ToLowerInvariant(),
+            (criteria.Seniority ?? string.Empty).Trim().ToLowerInvariant());
+        var salaryTask = salaryResearch.GetOrAdd(
+            salaryKey,
+            _ => new Lazy<Task<SalaryEstimate?>>(() => Run(
+                () => salaryAnalysisAgent.AnalyzeAsync(runId, index, posting, criteria, config, ct),
+                ev => new SalaryAnalyzedEvent(runId, AgentId.SalaryAnalysis(index), ev, DateTime.UtcNow)))).Value;
         var interviewTask = Run(() => interviewPrepAgent.PrepareAsync(runId, index, posting, match, config, ct),
             ev => new InterviewPrepReadyEvent(runId, AgentId.InterviewPrep(index), ev, DateTime.UtcNow));
 
