@@ -51,7 +51,7 @@ public sealed class Coordinator(
             config.MaxFanOutConcurrency,
             async (posting, index) =>
             {
-                var match = await resumeMatchAgent.MatchAsync(runId, index, request.ResumeText, posting, config, ct);
+                var match = await resumeMatchAgent.MatchAsync(runId, index, request.ResumeText, posting, criteria, config, ct);
                 await bus.PublishAsync(new JobMatchedEvent(runId, AgentId.ResumeMatch(index), match, DateTime.UtcNow), ct);
                 return match;
             },

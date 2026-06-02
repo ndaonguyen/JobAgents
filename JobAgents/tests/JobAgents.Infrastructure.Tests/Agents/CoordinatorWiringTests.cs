@@ -95,7 +95,7 @@ public class CoordinatorWiringTests
     private sealed class FakeResumeMatchAgent(Func<int, int> scoreByIndex) : IResumeMatchAgent
     {
         public int Calls;
-        public Task<JobMatch> MatchAsync(RunId runId, int index, string resumeText, JobPosting posting, JobHuntConfig config, CancellationToken ct)
+        public Task<JobMatch> MatchAsync(RunId runId, int index, string resumeText, JobPosting posting, SearchCriteria criteria, JobHuntConfig config, CancellationToken ct)
         {
             Interlocked.Increment(ref Calls);
             return Task.FromResult(new JobMatch(posting, scoreByIndex(index), [], [], "ok"));

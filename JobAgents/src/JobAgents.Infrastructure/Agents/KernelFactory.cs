@@ -1,6 +1,7 @@
 using JobAgents.Infrastructure.Agents.Filters;
 using JobAgents.Infrastructure.Configuration;
 using JobAgents.Infrastructure.Plugins;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 
@@ -18,7 +19,8 @@ public sealed class KernelFactory(
     IOptions<JobAgentsOptions> options,
     IHttpClientFactory httpClientFactory,
     EventPublishingFunctionFilter functionFilter,
-    AgentRunContext runContext)
+    AgentRunContext runContext,
+    ILogger<JobSearchPlugin> searchPluginLogger)
     : IKernelFactory
 {
     private readonly OpenAiOptions _openAi = options.Value.OpenAi;
@@ -39,7 +41,7 @@ public sealed class KernelFactory(
         if (includePlugins)
         {
             var searchHttp = httpClientFactory.CreateClient("tavily");
-            var searchPlugin = new JobSearchPlugin(searchHttp, options, runContext);
+            var searchPlugin = new JobSearchPlugin(searchHttp, options, runContext, searchPluginLogger);
             kernel.Plugins.AddFromObject(searchPlugin, "Web");
         }
 

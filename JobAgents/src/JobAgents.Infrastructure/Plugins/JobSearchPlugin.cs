@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using JobAgents.Domain.Agents;
 using JobAgents.Infrastructure.Agents;
 using JobAgents.Infrastructure.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel;
 
@@ -16,7 +17,8 @@ namespace JobAgents.Infrastructure.Plugins;
 /// invocation is captured onto the event bus by the kernel function filter. When the run selected
 /// specific sources, the search is restricted to those domains via Tavily's <c>include_domains</c>.
 /// </summary>
-public sealed class JobSearchPlugin(HttpClient http, IOptions<JobAgentsOptions> options, AgentRunContext context)
+public sealed class JobSearchPlugin(
+    HttpClient http, IOptions<JobAgentsOptions> options, AgentRunContext context, ILogger<JobSearchPlugin> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -45,27 +47,40 @@ public sealed class JobSearchPlugin(HttpClient http, IOptions<JobAgentsOptions> 
         // Exact dates take precedence over the preset window.
         var timeRange = isSourcing && !hasExactDates ? context.TimeRange : null;
 
-        var request = new TavilyRequest(
-            ApiKey: _tavily.ApiKey,
-            Query: query,
-            MaxResults: Math.Clamp(maxResults, 1, 10),
-            SearchDepth: "basic",
-            IncludeDomains: domains.Count > 0 ? domains.ToArray() : null,
-            TimeRange: string.IsNullOrWhiteSpace(timeRange) ? null : timeRange,
-            StartDate: string.IsNullOrWhiteSpace(startDate) ? null : startDate,
-            EndDate: string.IsNullOrWhiteSpace(endDate) ? null : endDate);
+        var clampedMax = Math.Clamp(maxResults, 1, 10);
 
-        using var response = await http.PostAsJsonAsync(
-            $"{_tavily.BaseUrl.TrimEnd('/')}/search", request, JsonOptions, ct);
+        // First attempt: hard-restrict to the selected sources via Tavily's include_domains.
+        var (items, error) = await SearchAsync(
+            query, clampedMax, domains.Count > 0 ? domains.ToArray() : null,
+            timeRange, startDate, endDate, ct);
+        if (error is not null)
+            return error;
 
-        if (!response.IsSuccessStatusCode)
+        logger.LogInformation(
+            "Tavily returned {Count} result(s) for query {Query} (domains: {Domains}, depth: advanced).",
+            items.Count, query, Describe(domains));
+
+        // Fallback: a hard domain restriction can shut out niche / JS-heavy sites that Tavily indexes
+        // poorly (e.g. itviec.com). If it found nothing, retry across the whole web with the site names
+        // folded into the query as keyword hints — biasing toward those sites without excluding others.
+        if (items.Count == 0 && domains.Count > 0)
         {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            return $"{{\"error\":\"Tavily request failed ({(int)response.StatusCode}): {body}\"}}";
-        }
+            var biasedQuery = $"{query} {string.Join(' ', domains)}";
+            var (fallbackItems, fallbackError) = await SearchAsync(
+                biasedQuery, clampedMax, includeDomains: null, timeRange, startDate, endDate, ct);
 
-        var result = await response.Content.ReadFromJsonAsync<TavilyResponse>(JsonOptions, ct);
-        var items = result?.Results ?? [];
+            if (fallbackError is not null)
+            {
+                logger.LogWarning("Tavily fallback search failed; returning the (empty) restricted result.");
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Tavily domain-restricted search was empty; whole-web fallback for query {Query} returned {Count} result(s).",
+                    biasedQuery, fallbackItems.Count);
+                items = fallbackItems;
+            }
+        }
 
         // Return a compact JSON array the agent can reason over (incl. a published date when present).
         var projected = items.Select(r => new
@@ -78,11 +93,49 @@ public sealed class JobSearchPlugin(HttpClient http, IOptions<JobAgentsOptions> 
         return JsonSerializer.Serialize(projected, JsonOptions);
     }
 
+    /// <summary>
+    /// Executes one Tavily search. Returns the results plus a non-null error JSON string when the
+    /// request itself failed (so the caller can surface it to the agent or fall back).
+    /// </summary>
+    private async Task<(List<TavilyResult> Items, string? Error)> SearchAsync(
+        string query, int maxResults, string[]? includeDomains,
+        string? timeRange, string? startDate, string? endDate, CancellationToken ct)
+    {
+        // "advanced" gives much better recall on niche / JS-heavy sites (e.g. itviec.com) than "basic".
+        var request = new TavilyRequest(
+            ApiKey: _tavily.ApiKey,
+            Query: query,
+            MaxResults: maxResults,
+            SearchDepth: "advanced",
+            IncludeDomains: includeDomains,
+            TimeRange: string.IsNullOrWhiteSpace(timeRange) ? null : timeRange,
+            StartDate: string.IsNullOrWhiteSpace(startDate) ? null : startDate,
+            EndDate: string.IsNullOrWhiteSpace(endDate) ? null : endDate);
+
+        using var response = await http.PostAsJsonAsync(
+            $"{_tavily.BaseUrl.TrimEnd('/')}/search", request, JsonOptions, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            logger.LogWarning(
+                "Tavily request failed ({Status}) for query {Query} (domains: {Domains}): {Body}",
+                (int)response.StatusCode, query, includeDomains is { Length: > 0 } ? string.Join(", ", includeDomains) : "(whole web)", body);
+            return ([], $"{{\"error\":\"Tavily request failed ({(int)response.StatusCode}): {body}\"}}");
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<TavilyResponse>(JsonOptions, ct);
+        return (result?.Results ?? [], null);
+    }
+
     private static string Truncate(string? value, int max)
     {
         value ??= string.Empty;
         return value.Length <= max ? value : value[..max];
     }
+
+    private static string Describe(IReadOnlyList<string> domains) =>
+        domains.Count > 0 ? string.Join(", ", domains) : "(whole web)";
 
     private sealed record TavilyRequest(
         [property: JsonPropertyName("api_key")] string ApiKey,

@@ -17,8 +17,7 @@ public sealed record SearchInputs(
     int MinMatchScore = 60,
     string? PostedWithin = null,
     string? StartDate = null,
-    string? EndDate = null,
-    bool OpenOnly = true)
+    string? EndDate = null)
 {
     public static SearchInputs Empty { get; } =
         new([], [], [], string.Empty, null, null, "USD", string.Empty, []);

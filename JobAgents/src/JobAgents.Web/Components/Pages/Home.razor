@@ -253,13 +253,6 @@
                     </div>
                 </div>
 
-                <div class="form-check mt-2">
-                    <input class="form-check-input" type="checkbox" id="openOnly" @bind="_openOnly" />
-                    <label class="form-check-label small" for="openOnly">
-                        Only show roles still open (skip closed / expired)
-                    </label>
-                </div>
-
                 <div class="mt-2">
                     <label class="form-label small mb-0">
                         Minimum fit score: <strong>@_minMatchScore</strong>/100
@@ -429,7 +422,6 @@
     private int _minMatchScore = 60;
     private int _lastMinScore = 60;
     private string _postedWithin = "month"; // default to the last month to avoid stale results
-    private bool _openOnly = true;
     private string _lastPreferences = string.Empty;
     private SearchInputs _lastInputs = SearchInputs.Empty;
     private string _lastTitle = string.Empty;
@@ -600,7 +592,6 @@
         _postedWithin = PostedWithinOptions.Values.Contains(inputs.PostedWithin ?? "") ? inputs.PostedWithin ?? "" : "month";
         _fromDate = ParseDate(inputs.StartDate);
         _toDate = ParseDate(inputs.EndDate);
-        _openOnly = inputs.OpenOnly;
     }
 
     private SearchInputs CurrentInputs() => new(
@@ -616,8 +607,7 @@
         MinMatchScore: _minMatchScore,
         PostedWithin: _postedWithin,
         StartDate: _fromDate?.ToString("yyyy-MM-dd"),
-        EndDate: _toDate?.ToString("yyyy-MM-dd"),
-        OpenOnly: _openOnly);
+        EndDate: _toDate?.ToString("yyyy-MM-dd"));
 
     /// <summary>A short, scannable title summarising the key search points.</summary>
     private static string BuildTitle(SearchInputs i)
@@ -819,7 +809,6 @@
             TimeRange = string.IsNullOrEmpty(_postedWithin) ? null : _postedWithin,
             StartDate = _fromDate?.ToString("yyyy-MM-dd"),
             EndDate = _toDate?.ToString("yyyy-MM-dd"),
-            OpenOnly = _openOnly,
         };
 
         try
