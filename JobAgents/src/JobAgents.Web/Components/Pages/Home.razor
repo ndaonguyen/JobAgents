@@ -332,6 +332,12 @@
             {
                 <span class="ms-3 badge bg-secondary">Run cost: @cost.ToString("$0.0000")</span>
             }
+            @if (_tavilyRequests > 0)
+            {
+                <span class="ms-2 badge bg-info text-dark" title="Total Tavily web-search requests this run (incl. fallbacks)">
+                    🌐 @_tavilyRequests web search@(_tavilyRequests == 1 ? "" : "es")
+                </span>
+            }
         </EditForm>
 
         @if (_error is not null)
@@ -494,6 +500,7 @@
 
     private string? _error;
     private decimal? _cost;
+    private int _tavilyRequests;
     private JobHuntResult? _result;
 
     private const int PageSize = 5;
@@ -898,6 +905,7 @@
         _running = true;
         _error = null;
         _cost = null;
+        _tavilyRequests = 0;
         _result = null;
         _dossiers = new();
         _expanding.Clear();
@@ -1000,6 +1008,12 @@
 
             case ToolCalledEvent e:
                 _activity.Add(new ActivityItem("🔧", e.ToolName, Truncate(e.ArgumentsJson, 140)));
+                break;
+
+            case WebSearchRequestedEvent e:
+                _tavilyRequests++;
+                _activity.Add(new ActivityItem("🌐",
+                    $"Web search #{_tavilyRequests}{(e.IsFallback ? " (fallback)" : "")}", Truncate(e.Query, 140)));
                 break;
 
             case JobsFoundEvent e:

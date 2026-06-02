@@ -1,3 +1,4 @@
+using JobAgents.Application.Abstractions;
 using JobAgents.Infrastructure.Agents.Filters;
 using JobAgents.Infrastructure.Configuration;
 using JobAgents.Infrastructure.Plugins;
@@ -20,6 +21,7 @@ public sealed class KernelFactory(
     IHttpClientFactory httpClientFactory,
     EventPublishingFunctionFilter functionFilter,
     AgentRunContext runContext,
+    IAgentEventBus bus,
     ILogger<JobSearchPlugin> searchPluginLogger)
     : IKernelFactory
 {
@@ -41,7 +43,7 @@ public sealed class KernelFactory(
         if (includePlugins)
         {
             var searchHttp = httpClientFactory.CreateClient("tavily");
-            var searchPlugin = new JobSearchPlugin(searchHttp, options, runContext, searchPluginLogger);
+            var searchPlugin = new JobSearchPlugin(searchHttp, options, runContext, bus, searchPluginLogger);
             kernel.Plugins.AddFromObject(searchPlugin, "Web");
         }
 

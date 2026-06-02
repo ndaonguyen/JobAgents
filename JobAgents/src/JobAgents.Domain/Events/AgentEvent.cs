@@ -67,6 +67,18 @@ public sealed record ToolResultEvent(
     public override string Kind => "tool.result";
 }
 
+/// <summary>
+/// One actual web-search (Tavily) HTTP request was issued. Distinct from <see cref="ToolCalledEvent"/>:
+/// a single search_web tool call can issue two requests (a domain-restricted attempt plus a whole-web
+/// fallback), so counting these reflects true external request volume.
+/// </summary>
+public sealed record WebSearchRequestedEvent(
+    RunId RunId, AgentId AgentId, string Query, bool IsFallback, DateTime Timestamp)
+    : AgentEvent(RunId, AgentId, Timestamp)
+{
+    public override string Kind => "websearch.requested";
+}
+
 /// <summary>The Search agent produced a candidate list of postings.</summary>
 public sealed record JobsFoundEvent(
     RunId RunId, AgentId AgentId, IReadOnlyList<JobPosting> Postings, DateTime Timestamp)

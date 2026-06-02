@@ -2,7 +2,9 @@ using System.ComponentModel;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using JobAgents.Application.Abstractions;
 using JobAgents.Domain.Agents;
+using JobAgents.Domain.Events;
 using JobAgents.Infrastructure.Agents;
 using JobAgents.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
@@ -18,7 +20,8 @@ namespace JobAgents.Infrastructure.Plugins;
 /// specific sources, the search is restricted to those domains via Tavily's <c>include_domains</c>.
 /// </summary>
 public sealed class JobSearchPlugin(
-    HttpClient http, IOptions<JobAgentsOptions> options, AgentRunContext context, ILogger<JobSearchPlugin> logger)
+    HttpClient http, IOptions<JobAgentsOptions> options, AgentRunContext context,
+    IAgentEventBus bus, ILogger<JobSearchPlugin> logger)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -52,7 +55,7 @@ public sealed class JobSearchPlugin(
         // First attempt: hard-restrict to the selected sources via Tavily's include_domains.
         var (items, error) = await SearchAsync(
             query, clampedMax, domains.Count > 0 ? domains.ToArray() : null,
-            timeRange, startDate, endDate, ct);
+            timeRange, startDate, endDate, isFallback: false, ct);
         if (error is not null)
             return error;
 
@@ -67,7 +70,7 @@ public sealed class JobSearchPlugin(
         {
             var biasedQuery = $"{query} {string.Join(' ', domains)}";
             var (fallbackItems, fallbackError) = await SearchAsync(
-                biasedQuery, clampedMax, includeDomains: null, timeRange, startDate, endDate, ct);
+                biasedQuery, clampedMax, includeDomains: null, timeRange, startDate, endDate, isFallback: true, ct);
 
             if (fallbackError is not null)
             {
@@ -99,8 +102,15 @@ public sealed class JobSearchPlugin(
     /// </summary>
     private async Task<(List<TavilyResult> Items, string? Error)> SearchAsync(
         string query, int maxResults, string[]? includeDomains,
-        string? timeRange, string? startDate, string? endDate, CancellationToken ct)
+        string? timeRange, string? startDate, string? endDate, bool isFallback, CancellationToken ct)
     {
+        // Count this as one real external request, attributed to the current run/agent for the UI.
+        if (context.CurrentRun is { } runId)
+        {
+            await bus.PublishAsync(new WebSearchRequestedEvent(
+                runId, context.CurrentAgent ?? AgentId.System, query, isFallback, DateTime.UtcNow), ct);
+        }
+
         // "advanced" gives much better recall on niche / JS-heavy sites (e.g. itviec.com) than "basic".
         var request = new TavilyRequest(
             ApiKey: _tavily.ApiKey,
