@@ -344,16 +344,6 @@
                     <span>@(_criteria is not null ? "Search with these" : "Find jobs")</span>
                 }
             </button>
-            @if (_cost is { } cost)
-            {
-                <span class="ms-3 badge bg-secondary">Run cost: @cost.ToString("$0.0000")</span>
-            }
-            @if (_tavilyRequests > 0)
-            {
-                <span class="ms-2 badge bg-info text-dark" title="Total Tavily web-search requests this run (incl. fallbacks)">
-                    🌐 @_tavilyRequests web search@(_tavilyRequests == 1 ? "" : "es")
-                </span>
-            }
             @if (_result is not null && !_running)
             {
                 <button type="button" class="btn btn-outline-secondary btn-sm ms-3"
@@ -391,6 +381,35 @@
 
     <div class="col-12 result-pane">
         <h5>Results</h5>
+
+        @if (_running || _result is not null)
+        {
+            <div class="card mb-3 cost-summary">
+                <div class="card-body py-2">
+                    <div class="d-flex flex-wrap gap-3 align-items-center small">
+                        <span class="badge bg-secondary fs-6">
+                            Total: @((_cost ?? (_searchCost + _matchCost + _otherCost)).ToString("$0.0000"))
+                        </span>
+                        <span title="Resume-matching LLM cost (Claude)">
+                            🧩 Matching (Claude): <strong>@_matchCost.ToString("$0.0000")</strong>
+                        </span>
+                        <span title="Job-search agent LLM cost (OpenAI)">
+                            🔎 Search (OpenAI): <strong>@_searchCost.ToString("$0.0000")</strong>
+                        </span>
+                        @if (_otherCost > 0m)
+                        {
+                            <span title="Coordinator, company/salary/interview research (OpenAI)">
+                                📊 Research &amp; synthesis: <strong>@_otherCost.ToString("$0.0000")</strong>
+                            </span>
+                        }
+                        <span title="Total Tavily web-search requests this run (incl. fallbacks)">
+                            🌐 Tavily requests: <strong>@_tavilyRequests</strong>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        }
+
         @if (_result is null)
         {
             <p class="text-muted">Ranked job dossiers will appear here when the run finishes.</p>
@@ -525,6 +544,11 @@
     private string? _error;
     private decimal? _cost;
     private int _tavilyRequests;
+    // Per-category LLM cost, accumulated from each agent's finished event (the matcher runs on Claude,
+    // everything else on OpenAI, so the split is genuinely useful).
+    private decimal _searchCost;
+    private decimal _matchCost;
+    private decimal _otherCost;
     private JobHuntResult? _result;
 
     // Search budget: user-selected effort (max searches) + an escalation applied by "Search harder".
@@ -952,6 +976,9 @@
         _error = null;
         _cost = null;
         _tavilyRequests = 0;
+        _searchCost = 0m;
+        _matchCost = 0m;
+        _otherCost = 0m;
         _result = null;
         _dossiers = new();
         _expanding.Clear();
@@ -1054,6 +1081,14 @@
             case AgentFinishedEvent e when e.AgentId != AgentId.System:
                 if (_streaming.TryGetValue(e.AgentId.Value, out var done))
                     done.Icon = "✅";
+                // Bucket the per-agent cost: search agent, resume matcher (Claude), or everything else.
+                var spent = e.EstimatedCostUsd ?? 0m;
+                if (e.AgentId == AgentId.Search)
+                    _searchCost += spent;
+                else if (e.AgentId.Value.StartsWith("resume-match", StringComparison.Ordinal))
+                    _matchCost += spent;
+                else
+                    _otherCost += spent;
                 break;
 
             case ToolCalledEvent e:

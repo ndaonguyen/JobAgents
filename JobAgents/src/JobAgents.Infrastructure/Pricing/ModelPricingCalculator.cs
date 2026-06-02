@@ -23,6 +23,8 @@ public sealed class ModelPricingCalculator : IUsageCalculator
         ("claude-haiku-4-5",  new Price(1.00m, 5.00m)),
         ("claude-sonnet-4",   new Price(3.00m, 15.00m)),
         ("claude-opus-4",     new Price(15.00m, 75.00m)),
+        ("claude-3-5-haiku",  new Price(0.80m, 4.00m)),
+        ("claude-3-haiku",    new Price(0.25m, 1.25m)),
         ("claude-haiku",      new Price(1.00m, 5.00m)),
     ];
 
