@@ -38,6 +38,11 @@ if (string.IsNullOrWhiteSpace(options.OpenAi.ApiKey))
     return 2;
 }
 
+// Interview-prep eval. Runs on the OpenAI model (validated above) and doesn't need Claude, so it
+// dispatches before the Anthropic guard.
+if (args.Length > 0 && string.Equals(args[0], "interview", StringComparison.OrdinalIgnoreCase))
+    return await InterviewPrepEval.RunAsync(provider);
+
 // The matcher now runs on Claude by default (the judge still uses the OpenAI model above).
 if (string.IsNullOrWhiteSpace(options.Anthropic.ApiKey))
 {

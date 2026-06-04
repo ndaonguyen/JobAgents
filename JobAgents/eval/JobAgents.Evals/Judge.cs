@@ -1,5 +1,6 @@
 using System.Text.Json;
 using JobAgents.Domain.Agents;
+using JobAgents.Domain.JobHunt;
 using JobAgents.Domain.Runs;
 using JobAgents.Infrastructure.Agents;
 
@@ -7,6 +8,9 @@ namespace JobAgents.Evals;
 
 /// <summary>The judge's verdict on whether a match's claims are grounded in the resume.</summary>
 public sealed record JudgeVerdict(bool Grounded, string[] Unsupported, string Note);
+
+/// <summary>The judge's verdict on a generated interview-prep set (quality, not grounding).</summary>
+public sealed record PrepVerdict(bool Relevant, bool AddressesGaps, string Note);
 
 /// <summary>
 /// LLM-as-judge: a second model call that audits the matcher's CLAIMED MATCHED SKILLS — checking each
@@ -76,10 +80,67 @@ public sealed class Judge(IAgentRunner runner)
         }
     }
 
+    private const string InterviewSystemPrompt =
+        """
+        You are a strict evaluation judge for an automated interview-preparation agent. You are given a
+        JOB (title + summary), the candidate's KNOWN GAPS for that job, and the agent's generated LIKELY
+        QUESTIONS and PREP NOTES. Decide two things:
+        - "relevant": are the LIKELY QUESTIONS plausibly questions for THIS role — not generic filler
+          unrelated to the job's domain and seniority?
+        - "addressesGaps": do the PREP NOTES give concrete advice on the candidate's listed GAPS?
+          If the KNOWN GAPS list is "(none)", set this to true (there is nothing to address).
+        Return ONLY a JSON object: { "relevant": boolean, "addressesGaps": boolean, "note": string }
+        "note" is one short sentence. Judge only the text given.
+        """;
+
+    /// <summary>
+    /// LLM-as-judge for interview prep: a quality check (not a grounding check). Verifies the questions
+    /// are role-relevant and the prep notes actually speak to the candidate's stated gaps — the failure
+    /// modes (generic boilerplate questions, notes that ignore the gaps) that item counts can't catch.
+    /// </summary>
+    public async Task<PrepVerdict> AuditInterviewPrepAsync(
+        RunId runId, JobPosting posting, IReadOnlyList<string> gaps, InterviewPrep prep, string? model, CancellationToken ct)
+    {
+        var userPrompt =
+            $"""
+            JOB:
+            Title: {posting.Title}
+            Summary: {posting.Summary}
+
+            KNOWN GAPS:
+            {(gaps.Count == 0 ? "(none)" : string.Join(", ", gaps))}
+
+            LIKELY QUESTIONS:
+            {string.Join("\n", prep.LikelyQuestions.Select(q => "- " + q))}
+
+            PREP NOTES:
+            {string.Join("\n", prep.PrepNotes.Select(n => "- " + n))}
+            """;
+
+        var result = await runner.RunAsync(
+            runId, JudgeAgent, "Eval Judge (Interview)",
+            InterviewSystemPrompt, userPrompt, model, useTools: false, ct, jsonMode: true);
+
+        try
+        {
+            var dto = JsonSerializer.Deserialize<PrepVerdictDto>(result.Text, JsonOptions);
+            return new PrepVerdict(
+                dto?.Relevant ?? false,
+                dto?.AddressesGaps ?? false,
+                dto?.Note ?? "(no verdict produced)");
+        }
+        catch (JsonException)
+        {
+            return new PrepVerdict(false, false, "Judge returned unparseable output.");
+        }
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
     };
 
     private sealed record VerdictDto(bool Grounded, List<string>? Unsupported, string? Note);
+
+    private sealed record PrepVerdictDto(bool Relevant, bool AddressesGaps, string? Note);
 }
