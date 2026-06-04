@@ -34,6 +34,10 @@ public static class Seniority
         ["entry"] = SeniorityLevel.Junior,
         ["mid"] = SeniorityLevel.Mid,
         ["intermediate"] = SeniorityLevel.Mid,
+        // Numeric leveling: "Engineer I" entry/junior, "II" mid, "III" senior-equivalent. ("I" is too
+        // noisy a token to map, so only II/III are recognised.)
+        ["ii"] = SeniorityLevel.Mid,
+        ["iii"] = SeniorityLevel.Senior,
         ["senior"] = SeniorityLevel.Senior,
         ["sr"] = SeniorityLevel.Senior,
         ["lead"] = SeniorityLevel.Lead,

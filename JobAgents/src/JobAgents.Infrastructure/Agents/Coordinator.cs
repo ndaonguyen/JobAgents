@@ -153,6 +153,15 @@ public sealed class Coordinator(
             "workStyles" is any of "Onsite", "Hybrid", "Remote" the candidate would accept (include all
             that apply; empty means no preference). Infer sensible values from the resume when
             preferences are vague.
+
+            IMPORTANT — the PREFERENCES describe the candidate's TARGET: the roles and level they want
+            NEXT, which may be ABOVE their current resume level. When the preferences name target roles
+            or a seniority, use THOSE for "roles" and "seniority" — do NOT downgrade them to the level
+            shown in the resume. Map the target roles to the matching seniority (e.g. "Tech Lead" or
+            "Staff Engineer" → "Lead"; "Principal" → "Principal"; "Engineering Manager" → "Manager").
+            Only infer roles/seniority from the resume when the preferences don't state a target. Example:
+            a Senior-level resume with target roles "Staff Engineer, Tech Lead" → "seniority": "Lead" and
+            "roles": ["Staff Engineer", "Tech Lead"] — NOT "Senior".
             """;
 
         var userPrompt =

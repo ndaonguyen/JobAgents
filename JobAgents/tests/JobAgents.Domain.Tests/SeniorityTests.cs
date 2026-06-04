@@ -15,6 +15,10 @@ public class SeniorityTests
     [InlineData("Principal Architect", SeniorityLevel.Principal)]
     [InlineData("Junior Frontend Developer", SeniorityLevel.Junior)]
     [InlineData("Backend Engineer (Go)", SeniorityLevel.Unknown)]
+    [InlineData("Backend Software Engineer II", SeniorityLevel.Mid)]
+    [InlineData("Software Engineer III", SeniorityLevel.Senior)]
+    // The real Axon case: "Senior … II" carries both — Senior outranks the II level.
+    [InlineData("Senior Backend Software Engineer II", SeniorityLevel.Senior)]
     public void Detect_reads_the_level_from_the_title(string title, SeniorityLevel expected) =>
         Seniority.Detect(title).Should().Be(expected);
 
