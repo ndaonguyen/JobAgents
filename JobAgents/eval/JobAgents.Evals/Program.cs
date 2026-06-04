@@ -1,9 +1,4 @@
-using JobAgents.Application.Abstractions;
-using JobAgents.Domain.Agents;
-using JobAgents.Domain.Events;
-using JobAgents.Domain.Runs;
 using JobAgents.Evals;
-using JobAgents.Infrastructure.Agents;
 using JobAgents.Infrastructure.Configuration;
 using JobAgents.Infrastructure.DependencyInjection;
 using Microsoft.Extensions.Configuration;
@@ -38,11 +33,6 @@ if (string.IsNullOrWhiteSpace(options.OpenAi.ApiKey))
     return 2;
 }
 
-// Interview-prep eval. Runs on the OpenAI model (validated above) and doesn't need Claude, so it
-// dispatches before the Anthropic guard.
-if (args.Length > 0 && string.Equals(args[0], "interview", StringComparison.OrdinalIgnoreCase))
-    return await InterviewPrepEval.RunAsync(provider);
-
 // The matcher now runs on Claude by default (the judge still uses the OpenAI model above).
 if (string.IsNullOrWhiteSpace(options.Anthropic.ApiKey))
 {
@@ -52,136 +42,36 @@ if (string.IsNullOrWhiteSpace(options.Anthropic.ApiKey))
     return 2;
 }
 
-var matcher = provider.GetRequiredService<IResumeMatchAgent>();
-var runner = provider.GetRequiredService<IAgentRunner>();
-var bus = provider.GetRequiredService<IAgentEventBus>();
-var judge = new Judge(runner);
-
-// One run id for the whole eval; a background reader sums token cost off the event bus.
-var evalRunId = RunId.New();
-var costReader = Task.Run(async () =>
+// Sub-command: `dotnet run -- feedback-cases [dir]` calibrates against human-scored real matches
+// captured in the web app, instead of the synthetic golden set. Optional [dir] overrides where the
+// feedback-*.jsonl files live (defaults to the web app's results directory).
+if (args.Length > 0 && string.Equals(args[0], "feedback-cases", StringComparison.OrdinalIgnoreCase))
 {
-    decimal cost = 0m;
-    var tokens = 0;
-    await foreach (var evt in bus.SubscribeAsync(evalRunId))
-        if (evt is AgentFinishedEvent f)
-        {
-            cost += f.EstimatedCostUsd ?? 0m;
-            tokens += f.TokensIn + f.TokensOut;
-        }
-    return (cost, tokens);
-});
+    var feedbackDir = args.Length > 1 ? args[1] : DefaultFeedbackDir();
+    Console.WriteLine($"Loading feedback from: {feedbackDir}\n");
 
-Console.WriteLine(
-    $"Running {GoldenCases.Matches.Count} match eval case(s) on matcher '{options.Anthropic.Model}' " +
-    $"(judge '{options.OpenAi.Model}')…\n");
-
-// LLMs are non-deterministic, so a single run can't separate signal from noise. Run each case
-// several times and aggregate (median score + majority vote) — the basis for trustworthy tuning.
-const int trials = 3;
-var majority = (trials / 2) + 1;
-
-var results = new List<CaseResult>();
-foreach (var c in GoldenCases.Matches)
-{
-    var scores = new List<int>();
-    int inBand = 0, skillsOk = 0, grounded = 0;
-    var sampleMatched = "(none)";
-    var sampleRationale = "(none)";
-    var groundingFlags = new List<string>();
-
-    for (var t = 0; t < trials; t++)
+    var cases = await FeedbackCases.LoadAsync(feedbackDir);
+    if (cases.Count == 0)
     {
-        var match = await matcher.MatchAsync(evalRunId, t, c.Resume, c.Posting, c.Criteria, JobHuntConfig.Default, default);
-        scores.Add(match.Score);
-        if (match.Score >= c.MinScore && match.Score <= c.MaxScore)
-            inBand++;
-
-        var matchedJoined = string.Join(" | ", match.MatchedSkills);
-        var allSkillsPresent = c.ExpectedMatchedSkills
-            .All(s => matchedJoined.Contains(s, StringComparison.OrdinalIgnoreCase));
-        if (allSkillsPresent)
-            skillsOk++;
-
-        var verdict = await judge.AuditAsync(evalRunId, c.Resume, match.MatchedSkills, null, default);
-        if (verdict.Grounded)
-            grounded++;
-        else
-            groundingFlags.AddRange(verdict.Unsupported.Length > 0 ? verdict.Unsupported : [verdict.Note]);
-
-        if (match.MatchedSkills.Count > 0)
-            sampleMatched = matchedJoined;
-        if (!verdict.Grounded)
-            sampleRationale = matchedJoined;
+        Console.Error.WriteLine(
+            "No feedback found. Score some matches in the web app first (each result card has a " +
+            "\"Your score for this match\" control), then re-run this command.");
+        return 2;
     }
 
-    results.Add(new CaseResult(
-        c,
-        MedianScore: scores.OrderBy(s => s).ElementAt(scores.Count / 2),
-        Scores: scores,
-        InBand: inBand,
-        SkillsOk: skillsOk,
-        Grounded: grounded,
-        Trials: trials,
-        Majority: majority,
-        SampleMatched: sampleMatched,
-        SampleRationale: sampleRationale,
-        GroundingFlags: groundingFlags));
+    return await EvalRunner.RunAsync(provider, cases, "feedback");
 }
 
-// End the cost subscription cleanly (terminal System event flushes the FIFO reader).
-await bus.PublishAsync(new AgentFinishedEvent(evalRunId, AgentId.System, "", 0, 0, 0m, DateTime.UtcNow));
-var (totalCost, totalTokens) = await costReader;
+return await EvalRunner.RunAsync(provider, GoldenCases.Matches, "match eval");
 
-// ── Scorecard ──────────────────────────────────────────────────────────────────────────────────
-Console.WriteLine($"Eval scorecard  ({trials} trials/case, majority = {majority})");
-Console.WriteLine(new string('─', 78));
-foreach (var r in results)
+// Walks up from the eval's working directory to the repo root (the folder holding JobAgents.sln) and
+// returns the web app's results directory, where feedback-*.jsonl is written.
+static string DefaultFeedbackDir()
 {
-    Console.WriteLine($"{(r.Passed ? "PASS" : "FAIL")}  {r.Case.Name}");
-    Console.WriteLine(
-        $"      score median {r.MedianScore,3}  runs [{string.Join(",", r.Scores)}]  expected [{r.Case.MinScore}-{r.Case.MaxScore}]" +
-        $"  in-band {r.InBand}/{r.Trials} {Mark(r.ScorePass)}");
-    Console.WriteLine(
-        $"      target {r.Case.TargetScore,3}  abs error {r.AbsError,3}  (lower is better)");
-    if (r.Case.ExpectedMatchedSkills.Length > 0)
-        Console.WriteLine($"      skills {r.SkillsOk}/{r.Trials} {Mark(r.SkillsPass)}   e.g. matched: {r.SampleMatched}");
-    Console.WriteLine($"      grounded {r.Grounded}/{r.Trials} {Mark(r.GroundedPass)}");
-    if (!r.GroundedPass && r.GroundingFlags.Count > 0)
-    {
-        foreach (var flag in r.GroundingFlags.Distinct().Take(6))
-            Console.WriteLine($"        ⚠ judge flagged skill: {flag}");
-        Console.WriteLine($"        ↳ claimed skills were: {r.SampleRationale}");
-    }
-    Console.WriteLine();
-}
+    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+    while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "JobAgents.sln")))
+        dir = dir.Parent;
 
-var passed = results.Count(r => r.Passed);
-var mae = results.Average(r => r.AbsError);
-Console.WriteLine(new string('─', 78));
-Console.WriteLine(
-    $"Passed {passed}/{results.Count}   score MAE: {mae:0.0}   tokens: {totalTokens:N0}   est. cost: {totalCost:$0.0000}");
-
-return passed == results.Count ? 0 : 1;
-
-static string Mark(bool ok) => ok ? "✓" : "✗";
-
-internal sealed record CaseResult(
-    MatchCase Case,
-    int MedianScore,
-    List<int> Scores,
-    int InBand,
-    int SkillsOk,
-    int Grounded,
-    int Trials,
-    int Majority,
-    string SampleMatched,
-    string SampleRationale,
-    List<string> GroundingFlags)
-{
-    public int AbsError => Math.Abs(MedianScore - Case.TargetScore);
-    public bool ScorePass => InBand >= Majority;
-    public bool SkillsPass => Case.ExpectedMatchedSkills.Length == 0 || SkillsOk >= Majority;
-    public bool GroundedPass => Grounded >= Majority;
-    public bool Passed => ScorePass && SkillsPass && GroundedPass;
+    var root = dir?.FullName ?? Directory.GetCurrentDirectory();
+    return Path.Combine(root, "src", "JobAgents.Web", "results");
 }

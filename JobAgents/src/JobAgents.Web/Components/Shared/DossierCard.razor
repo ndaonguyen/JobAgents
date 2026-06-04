@@ -111,13 +111,68 @@
                 }
             }
         </div>
+
+        @if (EnableFeedback)
+        {
+            <div class="border-top mt-3 pt-2">
+                <label class="form-label small mb-1">
+                    Your score for this match <span class="text-muted">(feeds the eval calibration set)</span>
+                </label>
+                <div class="input-group input-group-sm" style="max-width: 460px;">
+                    <input type="number" class="form-control" min="0" max="100" style="max-width: 90px;"
+                           placeholder="0-100" @bind="_humanScore" />
+                    <input type="text" class="form-control"
+                           placeholder="why? (optional — e.g. hallucinated Swift, should rank higher)"
+                           @bind="_note" />
+                    <button class="btn btn-outline-primary" type="button"
+                            @onclick="SubmitScoreAsync"
+                            disabled="@(_saving || _humanScore is null or < 0 or > 100)">
+                        Save
+                    </button>
+                </div>
+                @if (_saved)
+                {
+                    <span class="small text-success">Saved ✓ (agent said @Dossier.Match.Score/100)</span>
+                }
+            </div>
+        }
     </div>
 </div>
 
 @code {
+    /// <summary>A human score submitted for one match: 0-100 plus an optional reason.</summary>
+    public sealed record ScoreSubmission(int Score, string? Note);
+
     [Parameter, EditorRequired] public required JobDossier Dossier { get; set; }
     [Parameter] public EventCallback OnExpand { get; set; }
     [Parameter] public bool Expanding { get; set; }
+
+    /// <summary>Shows the inline scoring control. The host wires <see cref="OnSubmitScore"/> to persist it.</summary>
+    [Parameter] public bool EnableFeedback { get; set; }
+    [Parameter] public EventCallback<ScoreSubmission> OnSubmitScore { get; set; }
+
+    private int? _humanScore;
+    private string? _note;
+    private bool _saving;
+    private bool _saved;
+
+    private async Task SubmitScoreAsync()
+    {
+        if (_humanScore is not (>= 0 and <= 100) || !OnSubmitScore.HasDelegate)
+            return;
+
+        _saving = true;
+        try
+        {
+            var note = string.IsNullOrWhiteSpace(_note) ? null : _note!.Trim();
+            await OnSubmitScore.InvokeAsync(new ScoreSubmission(_humanScore.Value, note));
+            _saved = true;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
 
     private bool IsMatchOnly => Dossier.Company is null && Dossier.Salary is null && Dossier.Interview is null;
 

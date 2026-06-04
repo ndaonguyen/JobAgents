@@ -4,6 +4,7 @@
 @implements IDisposable
 @inject StartJobHuntUseCase JobHunt
 @inject RunStore Store
+@inject FeedbackStore Feedback
 @inject ResumeTextExtractor ResumeExtractor
 @inject ProfileStore Profile
 @inject ModelConfigStore ModelConfig
@@ -428,7 +429,9 @@
             {
                 var key = DossierKey(dossier);
                 <DossierCard Dossier="dossier" Expanding="_expanding.Contains(key)"
-                             OnExpand="() => ExpandDossierAsync(dossier)" />
+                             OnExpand="() => ExpandDossierAsync(dossier)"
+                             EnableFeedback="true"
+                             OnSubmitScore="s => SaveFeedbackAsync(dossier, s)" />
             }
             @if (_dossiers.Count > _visibleCount)
             {
@@ -532,6 +535,8 @@
     private string _lastPreferences = string.Empty;
     private SearchInputs _lastInputs = SearchInputs.Empty;
     private string _lastTitle = string.Empty;
+    // The id of the most recent finished run, so feedback can be attributed to it.
+    private string? _lastRunId;
 
     private List<PersistedRun> _recent = new();
     private string? _recentStatus;
@@ -1156,6 +1161,7 @@
         if (_result is null)
             return;
 
+        _lastRunId = finished.RunId.Value;
         var run = new PersistedRun(
             finished.RunId.Value, DateTime.UtcNow, _lastTitle, _lastPreferences,
             _lastInputs, TotalCost, _result);
@@ -1167,6 +1173,37 @@
         catch
         {
             // Persistence is best-effort; don't fail the run on a write error.
+        }
+    }
+
+    /// <summary>
+    /// Persists a human score for one match as a <see cref="MatchFeedback"/> record. Captures the resume
+    /// and criteria that were actually in scope for this run, so the eval can replay it as a calibration
+    /// case (the matcher's own score is kept alongside for comparison).
+    /// </summary>
+    private async Task SaveFeedbackAsync(JobDossier dossier, DossierCard.ScoreSubmission submission)
+    {
+        if (_result is null || string.IsNullOrWhiteSpace(_resume))
+            return;
+
+        var feedback = new MatchFeedback(
+            RunId: _lastRunId ?? string.Empty,
+            CreatedAtUtc: DateTime.UtcNow,
+            Resume: _resume,
+            Posting: dossier.Match.Posting,
+            Criteria: _result.Criteria,
+            AgentScore: dossier.Match.Score,
+            AgentMatchedSkills: dossier.Match.MatchedSkills,
+            HumanScore: submission.Score,
+            Note: submission.Note);
+
+        try
+        {
+            await Feedback.SaveAsync(feedback);
+        }
+        catch
+        {
+            // Feedback capture is best-effort; never break the results view over a write error.
         }
     }
 

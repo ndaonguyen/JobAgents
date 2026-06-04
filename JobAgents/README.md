@@ -84,4 +84,40 @@ everything else stays on OpenAI.
 dotnet test
 ```
 
+Deterministic agent behaviour is covered here too — e.g. posting **dedupe**, and the Coordinator's
+**company / salary research dedup** (two top matches at the same employer, or the same
+role+location+seniority, trigger one research call, not two).
+
+## Evaluations
+
+LLM behaviour can't be pinned by ordinary unit tests, so the `eval/JobAgents.Evals` console project
+scores the agents against labelled cases and invariants. It reuses the Web app's user-secrets (same
+`UserSecretsId`), so the OpenAI / Anthropic / Tavily keys you set above just work — no extra setup.
+Each command exits `0` when everything passes and `1` otherwise, so they double as CI gates.
+
+```bash
+cd eval/JobAgents.Evals
+
+dotnet run                 # resume-matcher golden cases (default)   — needs OpenAI + Anthropic
+dotnet run -- interview    # interview-prep eval                     — needs OpenAI
+dotnet run -- search-eval  # search-agent property eval (live)       — needs OpenAI + Tavily
+dotnet run -- search-ab    # search URL-wording A/B (live, one-off)   — needs OpenAI + Tavily
+```
+
+- **`dotnet run`** (matcher) — runs 10 hand-labelled resume↔posting cases, 3 trials each, and checks
+  three things per case: the fit **score** lands in the expected band, the expected **skills** are
+  surfaced, and an **LLM judge** confirms no skill was hallucinated. Prints a scorecard with score MAE,
+  tokens and estimated cost.
+- **`interview`** — for labelled (posting + known-gaps) cases, checks the prep is **structurally sound**
+  (sane question/note counts, no blanks or duplicates) and uses an **LLM judge** to confirm the
+  questions are role-relevant and the notes address the candidate's gaps.
+- **`search-eval`** — search has no fixed ground truth, so it asserts **invariants** (well-formed
+  postings, dedup by company+title, search-budget adherence) and reports **URL-veracity metrics**
+  (reachability + whether the page mentions the company) to catch invented or stale postings. Hits live
+  web search and fetches URLs, so it's opt-in and indicative.
+- **`search-ab`** — one-off A/B of two URL-quality prompt wordings on the Vietnamese job boards;
+  reports how many distinct postings each returns and the detail-vs-listing URL split.
+
+The `interview` and `search` evals don't need the Anthropic key; only the default matcher eval does.
+
 See [docs/architecture.md](docs/architecture.md) for the full event flow and design notes.
