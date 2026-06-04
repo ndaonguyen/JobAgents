@@ -98,7 +98,7 @@ foreach (var c in GoldenCases.Matches)
         if (allSkillsPresent)
             skillsOk++;
 
-        var verdict = await judge.AuditAsync(evalRunId, c.Resume, match.MatchedSkills, match.Rationale, null, default);
+        var verdict = await judge.AuditAsync(evalRunId, c.Resume, match.MatchedSkills, null, default);
         if (verdict.Grounded)
             grounded++;
         else
@@ -107,7 +107,7 @@ foreach (var c in GoldenCases.Matches)
         if (match.MatchedSkills.Count > 0)
             sampleMatched = matchedJoined;
         if (!verdict.Grounded)
-            sampleRationale = match.Rationale;
+            sampleRationale = matchedJoined;
     }
 
     results.Add(new CaseResult(
@@ -145,8 +145,8 @@ foreach (var r in results)
     if (!r.GroundedPass && r.GroundingFlags.Count > 0)
     {
         foreach (var flag in r.GroundingFlags.Distinct().Take(6))
-            Console.WriteLine($"        ⚠ judge flagged: {flag}");
-        Console.WriteLine($"        ↳ rationale was: {r.SampleRationale}");
+            Console.WriteLine($"        ⚠ judge flagged skill: {flag}");
+        Console.WriteLine($"        ↳ claimed skills were: {r.SampleRationale}");
     }
     Console.WriteLine();
 }

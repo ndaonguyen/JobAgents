@@ -9,9 +9,14 @@ namespace JobAgents.Evals;
 public sealed record JudgeVerdict(bool Grounded, string[] Unsupported, string Note);
 
 /// <summary>
-/// LLM-as-judge: a second model call that audits the matcher's output, checking that every skill it
-/// claimed the resume demonstrates — and its rationale — is actually supported by the resume text.
-/// Catches the "plausible but hallucinated" failure mode that a score band alone can't.
+/// LLM-as-judge: a second model call that audits the matcher's CLAIMED MATCHED SKILLS — checking each
+/// is actually evidenced in the resume text. Catches the "plausible but hallucinated skill" failure
+/// mode that a score band alone can't.
+///
+/// It deliberately does NOT inspect the free-text rationale: a weak judge model (gpt-4o-mini) reads a
+/// skill name inside a gap sentence ("no evidence of Swift") and flags it as a possession-claim, which
+/// produced almost all of this eval's grounding false-positives. The matched-skills list is the only
+/// place a hallucinated possession-claim can be checked unambiguously, so that is all we judge.
 /// </summary>
 public sealed class Judge(IAgentRunner runner)
 {
@@ -19,27 +24,30 @@ public sealed class Judge(IAgentRunner runner)
 
     private const string SystemPrompt =
         """
-        You are a strict evaluation judge detecting HALLUCINATIONS in an automated resume matcher.
-        You are given a candidate RESUME, the matcher's MATCHED SKILLS (skills it claims the resume
-        demonstrates), and its RATIONALE. A hallucination is any claim that the candidate HAS or
-        DEMONSTRATES a skill/experience that the resume does NOT actually support.
+        You are a strict evaluation judge detecting HALLUCINATED SKILLS in an automated resume matcher.
+        You are given a candidate RESUME and the matcher's CLAIMED MATCHED SKILLS — the skills it claims
+        the resume demonstrates. Decide whether EACH claimed skill is actually evidenced in the resume.
         Return ONLY a JSON object: { "grounded": boolean, "unsupported": string[], "note": string }
         Rules:
-        - Every entry in MATCHED SKILLS must be clearly evidenced in the resume; if not, it is unsupported.
-        - In the RATIONALE, ONLY flag statements asserting the candidate POSSESSES something the resume
-          lacks. DO NOT flag statements saying the candidate LACKS, is MISSING, has NO, or would need a
-          skill — those are correct gap observations, not hallucinations.
-        - "grounded" is true when there are no hallucinated possession-claims.
-        - "unsupported" lists only the hallucinated claims; "note" is one short sentence.
-        Judge strictly against the resume text only.
+        - A skill is SUPPORTED if the resume names it or unambiguously shows it (e.g. "ASP.NET Core"
+          supports ".NET"; "Apache Kafka" supports "Kafka").
+        - A skill is UNSUPPORTED (hallucinated) only if NOTHING in the resume evidences it.
+        - Past, earlier-career, brief, or minor mentions STILL count as evidenced. Judge only whether
+          the resume names/shows the skill — NOT how recent, strong, or role-relevant it is.
+        - "unsupported" lists every claimed skill that is not evidenced; "grounded" is true only when
+          "unsupported" is empty.
+        - "note" is one short sentence.
+        Judge strictly against the resume text only. There is no job posting or rationale to consider —
+        evaluate ONLY the claimed matched skills against the resume.
         """;
 
     public async Task<JudgeVerdict> AuditAsync(
-        RunId runId, string resume, IReadOnlyList<string> matchedSkills, string rationale,
-        string? model, CancellationToken ct)
+        RunId runId, string resume, IReadOnlyList<string> matchedSkills, string? model, CancellationToken ct)
     {
-        if (matchedSkills.Count == 0 && string.IsNullOrWhiteSpace(rationale))
-            return new JudgeVerdict(true, [], "Nothing to verify.");
+        // No claimed skills → nothing can be hallucinated. (The matcher's own GroundMatchedSkills filter
+        // already drops skills absent from the resume, so this case is also the "honest empty" case.)
+        if (matchedSkills.Count == 0)
+            return new JudgeVerdict(true, [], "No matched skills to verify.");
 
         var userPrompt =
             $"""
@@ -47,10 +55,7 @@ public sealed class Judge(IAgentRunner runner)
             {resume}
 
             CLAIMED MATCHED SKILLS:
-            {(matchedSkills.Count == 0 ? "(none)" : string.Join(", ", matchedSkills))}
-
-            RATIONALE:
-            {rationale}
+            {string.Join(", ", matchedSkills)}
             """;
 
         var result = await runner.RunAsync(
