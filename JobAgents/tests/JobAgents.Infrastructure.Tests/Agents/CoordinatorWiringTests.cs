@@ -77,14 +77,17 @@ public class CoordinatorWiringTests
             MaxFanOutConcurrency = 3,
         };
 
-        // Three qualifying top matches. idx0 and idx1 share BOTH the employer ("Acme") and the salary
-        // key (title + location + seniority); idx2 ("Beta" / "Staff Dev" / "London") is distinct on both.
+        // Three qualifying top matches, all distinct under title+company dedup. The COMPANY dedup pair
+        // and the SALARY dedup pair are deliberately different pairs:
+        //   idx0 & idx2 share the employer ("Acme")             → one company lookup.
+        //   idx0 & idx1 share the salary key (title+location+seniority: "Senior Dev"/"Remote"/"Senior")
+        //                                                        → one salary lookup.
         // Seniority comes from the parsed criteria (FakeRunner → "Senior") and is constant across all.
         var postings = new List<JobPosting>
         {
             new("Senior Dev", "Acme", "Remote", "https://x/0", "summary"),
-            new("Senior Dev", "Acme", "Remote", "https://x/1", "summary"),
-            new("Staff Dev", "Beta", "London", "https://x/2", "summary"),
+            new("Senior Dev", "Beta", "Remote", "https://x/1", "summary"),
+            new("Staff Dev", "Acme", "London", "https://x/2", "summary"),
         };
         var scores = new[] { 90, 85, 80 };
 
@@ -103,10 +106,10 @@ public class CoordinatorWiringTests
         await coordinator.RunAsync(new AgentRunRequest(runId, "resume", "prefs"), config);
         await subscription;
 
-        // Company research is deduped by employer: Acme once + Beta once → 2 calls, not 3.
+        // Company research is deduped by employer: Acme (idx0, idx2) once + Beta once → 2 calls, not 3.
         company.Calls.Should().Be(2);
-        // Salary is deduped by role + location + seniority: the two Acme / Senior Dev / Remote matches
-        // share one lookup; Beta / Staff Dev / London is distinct → 2 calls, not 3.
+        // Salary is deduped by role + location + seniority: idx0 & idx1 (Senior Dev / Remote / Senior)
+        // share one lookup; idx2 (Staff Dev / London) is distinct → 2 calls, not 3.
         salary.Calls.Should().Be(2);
         // Interview prep has no dedup — it is tailored per match → one call per expanded match.
         interview.Calls.Should().Be(3);

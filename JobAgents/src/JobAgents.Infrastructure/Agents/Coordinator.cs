@@ -242,10 +242,25 @@ public sealed class Coordinator(
         return result.Text;
     }
 
+    /// <summary>
+    /// Collapses duplicate postings in two passes, keeping the first occurrence each time:
+    /// (1) by canonical URL — folds tracking/query-param and slug variants of one listing together (and
+    /// handles a reposted listing whose title changed but whose URL did not);
+    /// (2) by normalised title+company signature — folds the same job that arrived under different URLs
+    /// or a slightly different company string ("CodeHQ" vs "CodeHQ Vietnam"). Job boards routinely
+    /// surface one opening under several distinct URLs, which pass 1 alone can't catch.
+    /// Postings without a URL fall through pass 1 keyed by their signature, so pass 2 is idempotent for
+    /// them. Note: this also folds genuinely-distinct same-title roles at one employer into one card.
+    /// </summary>
     internal static IReadOnlyList<JobPosting> Dedupe(IReadOnlyList<JobPosting> postings) =>
         postings
-            .GroupBy(p => string.IsNullOrWhiteSpace(p.Url) ? $"{p.Title}|{p.Company}" : p.Url,
-                StringComparer.OrdinalIgnoreCase)
+            .GroupBy(p =>
+            {
+                var url = Sourcing.PostingKey.CanonicalUrl(p.Url);
+                return url.Length > 0 ? url : Sourcing.PostingKey.Signature(p);
+            }, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .GroupBy(Sourcing.PostingKey.Signature, StringComparer.Ordinal)
             .Select(g => g.First())
             .ToList();
 

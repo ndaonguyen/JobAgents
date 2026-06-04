@@ -56,12 +56,41 @@ public sealed class DedupeTests
     }
 
     [Fact]
-    public void Keeps_distinct_urls_even_with_same_title_and_company()
+    public void Collapses_url_tracking_param_variants_of_one_listing()
     {
+        // Same listing surfaced twice with different tracking/query params — one job, not two.
+        var input = new[]
+        {
+            Posting("Senior Fullstack Developer", "CodeHQ", "https://itviec.com/jobs/fullstack-codehq?source=search"),
+            Posting("Senior Fullstack Developer", "CodeHQ", "https://itviec.com/jobs/fullstack-codehq?utm_campaign=x&ref=123"),
+        };
+
+        Coordinator.Dedupe(input).Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Collapses_same_title_and_company_under_different_urls()
+    {
+        // The real CodeHQ case: one opening surfaced under three distinct itviec URLs (different slugs
+        // and ids), tagged "CodeHQ" vs "CodeHQ Vietnam" — collapsed by the title+company signature.
+        var input = new[]
+        {
+            Posting("Senior Fullstack Developer (.NET/Blazor/C#)", "CodeHQ Vietnam", "https://itviec.com/it-jobs/senior-fullstack-developer-codehq-1234"),
+            Posting("Senior Fullstack Developer (.NET/Blazor/C#)", "CodeHQ Vietnam", "https://itviec.com/it-jobs/senior-fullstack-developer-net-blazor-c-codehq-3730"),
+            Posting("Senior Fullstack Developer (.NET/Blazor/C#)", "CodeHQ", "https://itviec.com/it-jobs/senior-fullstack-developer-net-blazor-c-up-3000-codehq-0636"),
+        };
+
+        Coordinator.Dedupe(input).Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Keeps_different_titles_at_the_same_company()
+    {
+        // Distinct roles at one employer must survive — only the title+company pair together collapses.
         var input = new[]
         {
             Posting("Backend Engineer", "Acme", "https://jobs.acme.com/1"),
-            Posting("Backend Engineer", "Acme", "https://jobs.acme.com/2"),
+            Posting("Frontend Engineer", "Acme", "https://jobs.acme.com/2"),
         };
 
         Coordinator.Dedupe(input).Should().HaveCount(2);

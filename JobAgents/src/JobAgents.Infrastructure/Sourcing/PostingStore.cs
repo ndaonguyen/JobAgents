@@ -214,8 +214,12 @@ public sealed class FilePostingStore : IPostingStore
         value.Split([' ', '\t', '-', '/', ',', '(', ')'], StringSplitOptions.RemoveEmptyEntries)
             .Select(w => w.ToLowerInvariant());
 
-    private static string Key(JobPosting posting) =>
-        !string.IsNullOrWhiteSpace(posting.Url)
-            ? posting.Url.Trim().ToLowerInvariant()
-            : $"{posting.Title}|{posting.Company}".Trim().ToLowerInvariant();
+    // Key on the CANONICAL url (query/fragment/slug variants folded together) so the corpus stops
+    // hoarding several copies of one listing across runs; fall back to the title+company signature when
+    // there's no url. Shared with Coordinator.Dedupe via PostingKey so both agree on posting identity.
+    private static string Key(JobPosting posting)
+    {
+        var url = PostingKey.CanonicalUrl(posting.Url);
+        return url.Length > 0 ? url : PostingKey.Signature(posting);
+    }
 }
