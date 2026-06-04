@@ -88,17 +88,38 @@ public sealed class ResumeMatchAgent(IAgentRunner runner, IOptions<JobAgentsOpti
             SystemPrompt, userPrompt, model, useTools: false, ct, jsonMode: true);
 
         var dto = AgentJson.TryParse<MatchDto>(result.Text);
+        var score = Math.Clamp(dto?.Score ?? 0, 0, 100);
+        var gaps = dto?.Gaps?.ToList() ?? [];
+
+        // Deterministic seniority down-rank: the candidate's resume may genuinely FIT a role below their
+        // target level (a senior dev fits a "Senior" posting), so the model scores it high — but the user
+        // asked for a higher level. Cap such postings so they sink below the fit bar instead of crowding
+        // out on-level roles. Soft (a cap, not a delete) and lenient: only fires when the posting's title
+        // clearly names a lower level than requested. See Seniority.IsBelowFloor.
+        if (Seniority.IsBelowFloor(posting, criteria.Seniority))
+        {
+            score = Math.Min(score, BelowSeniorityFloorCap);
+            gaps.Insert(0,
+                $"Below target seniority (role reads as {Seniority.DetectFromPosting(posting)}, " +
+                $"you asked for {Seniority.Parse(criteria.Seniority)}+)");
+        }
+
         return new JobMatch(
             Posting: posting,
-            Score: Math.Clamp(dto?.Score ?? 0, 0, 100),
+            Score: score,
             // Deterministic grounding guard: smaller models sometimes copy the posting's required
             // skills into matchedSkills even when the resume never shows them. Drop any matched skill
             // whose name doesn't actually appear in the resume text, so the list can't claim skills
             // the candidate hasn't evidenced. Score and gaps are left untouched.
             MatchedSkills: GroundMatchedSkills(dto?.MatchedSkills, resumeText),
-            Gaps: dto?.Gaps ?? [],
+            Gaps: gaps,
             Rationale: dto?.Rationale ?? "(no rationale produced)");
     }
+
+    // A posting below the requested seniority is capped to this score so it falls under the typical
+    // fit bar without being hard-deleted (a strong-but-off-level role can still appear if the user
+    // lowers their minimum-fit threshold).
+    private const int BelowSeniorityFloorCap = 45;
 
     /// <summary>
     /// Keeps only skills whose name is actually present in the resume. Matching is case- and

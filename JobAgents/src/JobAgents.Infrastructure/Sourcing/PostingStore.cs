@@ -81,6 +81,9 @@ public sealed class FilePostingStore : IPostingStore
             .Where(l => l.Length > 0)
             .ToList();
         var remoteOk = criteria.WorkStyles.Any(w => w.Contains("remote", StringComparison.OrdinalIgnoreCase));
+        // Seniority floor: GenericRoleWords above strips "senior/lead/staff/…" so role matching stays
+        // level-agnostic, but a cached posting clearly BELOW the requested level must not be served back.
+        var seniorityFloor = Seniority.Parse(criteria.Seniority);
 
         lock (_gate)
         {
@@ -88,6 +91,7 @@ public sealed class FilePostingStore : IPostingStore
             return _cache.Values
                 .Where(e => now - e.FetchedAtUtc <= Ttl)               // our copy still fresh
                 .Where(e => WithinWindow(e, window, now))              // posted within the user's range
+                .Where(e => !Seniority.IsBelowFloor(e.Posting, seniorityFloor))
                 .Where(e => Fits(e.Posting, roleTokens, skillTokens, locTokens, remoteOk))
                 .OrderByDescending(e => e.FetchedAtUtc)
                 .Take(max)

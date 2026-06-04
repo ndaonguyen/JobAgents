@@ -20,7 +20,18 @@
                 </span>
             }
         </div>
-        <span class="badge bg-primary">Fit @Dossier.Match.Score/100</span>
+        <div class="d-flex align-items-center gap-1">
+            @{
+                var level = Seniority.DetectFromPosting(Dossier.Match.Posting);
+            }
+            @if (level != SeniorityLevel.Unknown)
+            {
+                <span class="badge bg-light text-dark border" title="Seniority detected from the posting title">
+                    @level
+                </span>
+            }
+            <span class="badge bg-primary">Fit @Dossier.Match.Score/100</span>
+        </div>
     </div>
     <div class="card-body">
         <p class="card-text">@Dossier.Match.Rationale</p>
