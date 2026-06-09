@@ -22,6 +22,13 @@ public static class PostingKey
         "vietnam", "vn", "asia", "apac", "global",
     };
 
+    // Connector words the model bakes in when it appends the company to a title ("... at <Company>").
+    // Dropped from the title signature so "<role>" and "<role> at <Company>" collapse to one job.
+    private static readonly HashSet<string> TitleConnectorWords = new(StringComparer.Ordinal)
+    {
+        "at", "in", "for",
+    };
+
     /// <summary>
     /// Normalises a posting URL so cosmetic variants collapse: drops the query string and fragment,
     /// strips a "www." host prefix and any trailing slash, and lower-cases the whole thing (matching
@@ -51,11 +58,37 @@ public static class PostingKey
 
     /// <summary>
     /// A title+company signature that collapses the same job even when its URL differs: normalised
-    /// title plus the company "core" (noise words like "Vietnam"/"Ltd" removed). Used as the secondary
+    /// title plus the company "core" (noise words like "Vietnam"/"Ltd" removed). The company tokens and
+    /// connector words ("at"/"in"/"for") are stripped from the title too, so a posting whose title the
+    /// model padded with "… at &lt;Company&gt;" folds into the bare-title duplicate. Used as the secondary
     /// dedupe key after canonical-URL collapse.
     /// </summary>
-    public static string Signature(JobPosting posting) =>
-        $"{NormalizeTitle(posting.Title)}|{NormalizeCompany(posting.Company)}";
+    public static string Signature(JobPosting posting)
+    {
+        // Strip the FULL company (incl. noise words like "Vietnam") from the title, but key on the
+        // company CORE — so "… at RANGSTRUP IT Vietnam" loses every company token from its title.
+        var title = StripCompanyFromTitle(NormalizeTitle(posting.Title), Normalize(posting.Company));
+        return $"{title}|{NormalizeCompany(posting.Company)}";
+    }
+
+    /// <summary>Drops the full company tokens and connector words from a normalised title.</summary>
+    private static string StripCompanyFromTitle(string normalizedTitle, string normalizedCompanyFull)
+    {
+        if (normalizedTitle.Length == 0)
+            return normalizedTitle;
+
+        var companyWords = normalizedCompanyFull.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var drop = new HashSet<string>(companyWords, StringComparer.Ordinal);
+        drop.UnionWith(TitleConnectorWords);
+
+        var kept = normalizedTitle
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(word => !drop.Contains(word))
+            .ToArray();
+
+        // If stripping emptied the title (e.g. title was literally the company), keep the original.
+        return kept.Length > 0 ? string.Join(' ', kept) : normalizedTitle;
+    }
 
     /// <summary>Lower-cases and collapses every run of non-alphanumeric characters to a single space.</summary>
     public static string NormalizeTitle(string? title) => Normalize(title);

@@ -38,6 +38,7 @@ public sealed class Coordinator(
         context.TimeRange = config.TimeRange;
         context.StartDate = config.StartDate;
         context.EndDate = config.EndDate;
+        context.SearchDepth = config.SearchDepth ?? SearchDepthSettings.Default;
 
         // 1. Parse criteria — unless the caller already supplied (user-edited) criteria.
         var criteria = request.Criteria ?? await ParseCriteriaCoreAsync(request, config, ct);
@@ -188,24 +189,30 @@ public sealed class Coordinator(
     {
         var posting = match.Posting;
 
-        // Research each distinct company once; same-company matches await the shared task.
+        // Research each distinct company once; same-company matches await the shared task. Opt-in:
+        // skipped entirely (no agent, no Tavily calls) unless the run enabled company research.
         var company = (posting.Company ?? string.Empty).Trim();
-        var companyTask = companyResearch.GetOrAdd(
-            company,
-            _ => new Lazy<Task<CompanyInsight?>>(() => Run(
-                () => companyResearchAgent.ResearchAsync(runId, index, company, config, ct),
-                ev => new CompanyResearchedEvent(runId, AgentId.CompanyResearch(index), ev, DateTime.UtcNow)))).Value;
+        var companyTask = config.ResearchCompany
+            ? companyResearch.GetOrAdd(
+                company,
+                _ => new Lazy<Task<CompanyInsight?>>(() => Run(
+                    () => companyResearchAgent.ResearchAsync(runId, index, company, config, ct),
+                    ev => new CompanyResearchedEvent(runId, AgentId.CompanyResearch(index), ev, DateTime.UtcNow)))).Value
+            : Task.FromResult<CompanyInsight?>(null);
         // Analyse each distinct role+location+seniority once; market rate is company-independent, so
         // matches that share those three await the same task instead of re-searching for the range.
+        // Opt-in: skipped entirely (no agent, no Tavily calls) unless the run enabled salary research.
         var salaryKey = string.Join('|',
             (posting.Title ?? string.Empty).Trim().ToLowerInvariant(),
             (posting.Location ?? string.Empty).Trim().ToLowerInvariant(),
             (criteria.Seniority ?? string.Empty).Trim().ToLowerInvariant());
-        var salaryTask = salaryResearch.GetOrAdd(
-            salaryKey,
-            _ => new Lazy<Task<SalaryEstimate?>>(() => Run(
-                () => salaryAnalysisAgent.AnalyzeAsync(runId, index, posting, criteria, config, ct),
-                ev => new SalaryAnalyzedEvent(runId, AgentId.SalaryAnalysis(index), ev, DateTime.UtcNow)))).Value;
+        var salaryTask = config.ResearchSalary
+            ? salaryResearch.GetOrAdd(
+                salaryKey,
+                _ => new Lazy<Task<SalaryEstimate?>>(() => Run(
+                    () => salaryAnalysisAgent.AnalyzeAsync(runId, index, posting, criteria, config, ct),
+                    ev => new SalaryAnalyzedEvent(runId, AgentId.SalaryAnalysis(index), ev, DateTime.UtcNow)))).Value
+            : Task.FromResult<SalaryEstimate?>(null);
         var interviewTask = Run(() => interviewPrepAgent.PrepareAsync(runId, index, posting, match, config, ct),
             ev => new InterviewPrepReadyEvent(runId, AgentId.InterviewPrep(index), ev, DateTime.UtcNow));
 

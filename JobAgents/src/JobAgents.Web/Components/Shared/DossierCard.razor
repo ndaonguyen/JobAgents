@@ -56,10 +56,10 @@
         }
 
         <div class="row mt-3">
-            @if (Dossier.Company is { } company)
-            {
-                <div class="col-md-6 mb-2">
-                    <h6>🏢 Company</h6>
+            <div class="col-md-6 mb-2">
+                <h6>🏢 Company</h6>
+                @if (Dossier.Company is { } company)
+                {
                     <p class="small mb-1">@company.Summary</p>
                     <ul class="small mb-0">
                         @foreach (var highlight in company.Highlights)
@@ -67,23 +67,53 @@
                             <li>@highlight</li>
                         }
                     </ul>
-                </div>
-            }
+                }
+                else if (OnResearchCompany.HasDelegate)
+                {
+                    @if (ResearchingCompany)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                        <span class="text-muted small ms-1">Researching company…</span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-outline-success" @onclick="OnResearchCompany"
+                                title="Run a web search to research this company (uses Tavily)">
+                            🏢 Research company
+                        </button>
+                    }
+                }
+            </div>
 
-            @if (Dossier.Salary is { } salary)
-            {
-                <div class="col-md-6 mb-2">
-                    <h6>💰 Salary</h6>
+            <div class="col-md-6 mb-2">
+                <h6>💰 Salary</h6>
+                @if (Dossier.Salary is { } salary)
+                {
                     <p class="small mb-1">@FormatSalary(salary)</p>
                     <p class="small text-muted mb-0">@salary.Basis</p>
-                </div>
-            }
+                }
+                else if (OnResearchSalary.HasDelegate)
+                {
+                    @if (ResearchingSalary)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                        <span class="text-muted small ms-1">Estimating salary…</span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-sm btn-outline-success" @onclick="OnResearchSalary"
+                                title="Run a web search for market salary data (uses Tavily)">
+                            💰 Research salary
+                        </button>
+                    }
+                }
+            </div>
         </div>
 
-        @if (Dossier.Interview is { } interview && interview.LikelyQuestions.Count > 0)
-        {
-            <div class="mt-2">
-                <h6>🎤 Interview prep</h6>
+        <div class="mt-2">
+            <h6>🎤 Interview prep</h6>
+            @if (Dossier.Interview is { } interview && interview.LikelyQuestions.Count > 0)
+            {
                 <ul class="small mb-1">
                     @foreach (var q in interview.LikelyQuestions)
                     {
@@ -94,8 +124,23 @@
                 {
                     <p class="small text-muted mb-0">@string.Join(" · ", interview.PrepNotes)</p>
                 }
-            </div>
-        }
+            }
+            else if (OnResearchInterview.HasDelegate)
+            {
+                @if (ResearchingInterview)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                    <span class="text-muted small ms-1">Preparing interview guidance…</span>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-success" @onclick="OnResearchInterview"
+                            title="Generate likely interview questions and prep notes">
+                        🎤 Research interview prep
+                    </button>
+                }
+            }
+        </div>
 
         <div class="mt-2 d-flex gap-2 align-items-center">
             @if (!string.IsNullOrWhiteSpace(Dossier.Match.Posting.Url))
@@ -106,20 +151,6 @@
                    title="@(isListing ? "This link opens a job-board search/listing page (multiple jobs), not a single posting." : "Open the job posting")">
                     @(isListing ? "Search results ↗" : "View posting")
                 </a>
-            }
-            @if (IsMatchOnly && OnExpand.HasDelegate)
-            {
-                @if (Expanding)
-                {
-                    <span class="spinner-border spinner-border-sm" role="status"></span>
-                    <span class="text-muted small">Researching company, salary &amp; interview…</span>
-                }
-                else
-                {
-                    <button class="btn btn-sm btn-outline-success" @onclick="OnExpand">
-                        Research company, salary &amp; interview
-                    </button>
-                }
             }
         </div>
 
@@ -155,8 +186,14 @@
     public sealed record ScoreSubmission(int Score, string? Note);
 
     [Parameter, EditorRequired] public required JobDossier Dossier { get; set; }
-    [Parameter] public EventCallback OnExpand { get; set; }
-    [Parameter] public bool Expanding { get; set; }
+    // On-demand, per-piece research. Each button shows only when its callback is wired and that piece
+    // is still missing; the matching Researching* flag swaps it for a spinner while the agent runs.
+    [Parameter] public EventCallback OnResearchCompany { get; set; }
+    [Parameter] public EventCallback OnResearchSalary { get; set; }
+    [Parameter] public EventCallback OnResearchInterview { get; set; }
+    [Parameter] public bool ResearchingCompany { get; set; }
+    [Parameter] public bool ResearchingSalary { get; set; }
+    [Parameter] public bool ResearchingInterview { get; set; }
 
     /// <summary>Shows the inline scoring control. The host wires <see cref="OnSubmitScore"/> to persist it.</summary>
     [Parameter] public bool EnableFeedback { get; set; }
@@ -184,8 +221,6 @@
             _saving = false;
         }
     }
-
-    private bool IsMatchOnly => Dossier.Company is null && Dossier.Salary is null && Dossier.Interview is null;
 
     private static string FormatSalary(SalaryEstimate s)
     {

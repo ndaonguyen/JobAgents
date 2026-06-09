@@ -1,0 +1,151 @@
+@page "/settings"
+@rendermode InteractiveServer
+@using JobAgents.Application.Abstractions
+@inject ModelConfigStore Models
+
+<PageTitle>Settings · JobAgents</PageTitle>
+
+@* Settings: search behaviour + depth + per-agent model picker. Saved to disk on every change. *@
+<div class="settings-page">
+    <div class="d-flex flex-wrap align-items-center justify-content-between mb-4">
+        <div>
+            <h1 class="mb-1">Settings</h1>
+            <p class="text-muted mb-0">Saved automatically on every change, applied to your next hunt.</p>
+        </div>
+        @if (!string.IsNullOrEmpty(_status))
+        {
+            <span class="save-pill">@_status</span>
+        }
+    </div>
+
+    <section class="card section-card mb-4">
+        <div class="card-header section-header">Search behaviour</div>
+        <div class="card-body">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="parallel-search"
+                       checked="@_config.ParallelSearch" @onchange="OnParallelChangedAsync" />
+                <label class="form-check-label" for="parallel-search">
+                    Parallel search
+                    <span class="text-muted d-block small">On: research 2 matches at once. Off: one by one (slower, fewer concurrent web searches).</span>
+                </label>
+            </div>
+        </div>
+    </section>
+
+    <section class="card section-card mb-4">
+        <div class="card-header section-header">Search depth per call</div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Tavily bills <strong>advanced</strong> at 2 credits per request, <strong>basic</strong> at 1.
+                Turn advanced on only where recall matters (e.g. job sourcing on niche boards); leave it off to save credits.
+            </p>
+            <div class="depth-list">
+                @foreach (var d in DepthSlots)
+                {
+                    var advanced = d.Get(Depth);
+                    <div class="depth-row">
+                        <div class="depth-info">
+                            <span class="depth-label">@d.Label</span>
+                            <span class="text-muted small d-block">@d.Desc</span>
+                        </div>
+                        <div class="depth-control">
+                            <span class="badge @(advanced ? "badge-advanced" : "badge-basic")">
+                                @(advanced ? "advanced · 2 credits" : "basic · 1 credit")
+                            </span>
+                            <div class="form-check form-switch m-0">
+                                <input class="form-check-input" type="checkbox" role="switch" id="depth-@d.Key"
+                                       checked="@advanced" @onchange="e => OnDepthChangedAsync(d, e)" />
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
+
+    <section class="card section-card mb-4">
+        <div class="card-header section-header">Agent models</div>
+        <div class="card-body">
+            <div class="row g-3">
+                @foreach (var slot in Agents)
+                {
+                    <div class="col-12 col-md-6 col-lg-4">
+                        <label class="form-label fw-semibold">@slot.Label</label>
+                        <select class="form-select form-select-sm" value="@slot.Get(_config)"
+                                @onchange="e => OnChangedAsync(slot, e)">
+                            @foreach (var opt in ModelCatalog.Options)
+                            {
+                                <option value="@opt.Id">@opt.Label</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
+</div>
+
+@code {
+    // One row per configurable agent: how to read its current value and how to set it on the record.
+    private sealed record AgentSlot(
+        string Label,
+        Func<AgentModelConfig, string?> Get,
+        Func<AgentModelConfig, string?, AgentModelConfig> With);
+
+    private static readonly AgentSlot[] Agents =
+    [
+        new("Coordinator", c => c.CoordinatorModel, (c, v) => c with { CoordinatorModel = v }),
+        new("Search", c => c.SearchModel, (c, v) => c with { SearchModel = v }),
+        new("Resume match", c => c.ResumeMatchModel, (c, v) => c with { ResumeMatchModel = v }),
+        new("Company research", c => c.CompanyResearchModel, (c, v) => c with { CompanyResearchModel = v }),
+        new("Salary analysis", c => c.SalaryAnalysisModel, (c, v) => c with { SalaryAnalysisModel = v }),
+        new("Interview prep", c => c.InterviewPrepModel, (c, v) => c with { InterviewPrepModel = v }),
+    ];
+
+    // One row per search-call kind: how to read/set its advanced flag on the depth settings.
+    private sealed record DepthSlot(
+        string Key,
+        string Label,
+        string Desc,
+        Func<SearchDepthSettings, bool> Get,
+        Func<SearchDepthSettings, bool, SearchDepthSettings> With);
+
+    private static readonly DepthSlot[] DepthSlots =
+    [
+        new("sourcing", "Job sourcing (selected sites)", "The Search agent's main query on the sites you pick — niche boards like itviec/topcv need advanced.", d => d.Sourcing, (d, v) => d with { Sourcing = v }),
+        new("fallback", "Job sourcing whole-web fallback", "Retry across the open web when the site-restricted query finds nothing.", d => d.SourcingFallback, (d, v) => d with { SourcingFallback = v }),
+        new("company", "Company research", "Looking up culture, reputation and news for a matched employer.", d => d.CompanyResearch, (d, v) => d with { CompanyResearch = v }),
+        new("salary", "Salary analysis", "Market salary range for the role, location and seniority.", d => d.SalaryAnalysis, (d, v) => d with { SalaryAnalysis = v }),
+    ];
+
+    private AgentModelConfig _config = new();
+    private string _status = "";
+
+    private SearchDepthSettings Depth => _config.SearchDepth ?? SearchDepthSettings.Default;
+
+    protected override async Task OnInitializedAsync() =>
+        _config = await Models.LoadAsync() ?? new AgentModelConfig();
+
+    private async Task OnChangedAsync(AgentSlot slot, ChangeEventArgs e)
+    {
+        // Empty selection ("Default") clears the override so the agent falls back to the app default.
+        var value = e.Value?.ToString();
+        _config = slot.With(_config, string.IsNullOrEmpty(value) ? null : value);
+        await Models.SaveAsync(_config);
+        _status = "Saved ✓";
+    }
+
+    private async Task OnParallelChangedAsync(ChangeEventArgs e)
+    {
+        _config = _config with { ParallelSearch = e.Value is true };
+        await Models.SaveAsync(_config);
+        _status = "Saved ✓";
+    }
+
+    private async Task OnDepthChangedAsync(DepthSlot slot, ChangeEventArgs e)
+    {
+        _config = _config with { SearchDepth = slot.With(Depth, e.Value is true) };
+        await Models.SaveAsync(_config);
+        _status = "Saved ✓";
+    }
+}

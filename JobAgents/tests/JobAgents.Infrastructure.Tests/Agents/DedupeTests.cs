@@ -84,6 +84,20 @@ public sealed class DedupeTests
     }
 
     [Fact]
+    public void Collapses_when_the_model_bakes_the_company_into_one_title()
+    {
+        // Real RANGSTRUP case: same opening, two itviec URLs. One posting's title got padded with
+        // "… at RANGSTRUP IT Vietnam" and its company tagged "… Vietnam" — must still fold to one.
+        var input = new[]
+        {
+            Posting("C# / .NET Technical Team Lead - up to $3000", "RANGSTRUP IT", "https://itviec.com/it-jobs/csharp-net-technical-team-lead-rangstrup-1111"),
+            Posting("C# / .NET Technical Team Lead - up to $3000 at RANGSTRUP IT Vietnam", "RANGSTRUP IT Vietnam", "https://itviec.com/it-jobs/csharp-net-technical-team-lead-up-3000-rangstrup-2222"),
+        };
+
+        Coordinator.Dedupe(input).Should().ContainSingle();
+    }
+
+    [Fact]
     public void Keeps_different_titles_at_the_same_company()
     {
         // Distinct roles at one employer must survive — only the title+company pair together collapses.

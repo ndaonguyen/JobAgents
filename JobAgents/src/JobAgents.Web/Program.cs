@@ -27,6 +27,12 @@ builder.Services.AddSingleton(_ => new IdeaStore(resultsDir));
 builder.Services.AddSingleton<JobAgents.Infrastructure.Sourcing.IPostingStore>(
     _ => new JobAgents.Infrastructure.Sourcing.FilePostingStore(resultsDir));
 
+// Disk-backed Tavily response cache (48h TTL): identical queries across runs/restarts replay the same
+// rows with no HTTP call — fewer Tavily requests + credits, identical results. Overrides the memory-only
+// default registered in AddInfrastructure.
+builder.Services.AddSingleton(
+    _ => new JobAgents.Infrastructure.Plugins.TavilySearchCache(Path.Combine(resultsDir, "tavily-cache")));
+
 // Resume file → text extraction (PDF / DOCX / TXT).
 builder.Services.AddSingleton<ResumeTextExtractor>();
 

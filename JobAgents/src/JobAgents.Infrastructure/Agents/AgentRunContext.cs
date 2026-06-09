@@ -1,3 +1,4 @@
+using JobAgents.Application.Abstractions;
 using JobAgents.Domain.Agents;
 using JobAgents.Domain.Runs;
 
@@ -17,6 +18,7 @@ public sealed class AgentRunContext
     private static readonly AsyncLocal<string?> _timeRange = new();
     private static readonly AsyncLocal<string?> _startDate = new();
     private static readonly AsyncLocal<string?> _endDate = new();
+    private static readonly AsyncLocal<SearchDepthSettings?> _searchDepth = new();
 
     public RunId? CurrentRun
     {
@@ -55,6 +57,13 @@ public sealed class AgentRunContext
     {
         get => _endDate.Value;
         set => _endDate.Value = value;
+    }
+
+    /// <summary>Per-call Tavily search-depth policy for this run (falls back to the defaults when unset).</summary>
+    public SearchDepthSettings SearchDepth
+    {
+        get => _searchDepth.Value ?? SearchDepthSettings.Default;
+        set => _searchDepth.Value = value;
     }
 
     public void Set(RunId runId, AgentId agentId)

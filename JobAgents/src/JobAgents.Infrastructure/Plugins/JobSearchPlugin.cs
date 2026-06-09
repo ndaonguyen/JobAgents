@@ -53,6 +53,26 @@ public sealed class JobSearchPlugin(
 
         var clampedMax = Math.Clamp(maxResults, 1, 10);
 
+        // Some job boards (itviec.com, topcv.vn, vietnamworks.com) are JS-heavy and barely indexed by
+        // Tavily, so a domain-restricted search against them almost always returns nothing — and we'd
+        // then spend a SECOND request on the whole-web fallback anyway. When EVERY selected source is
+        // one of these, skip the near-useless restricted call and go straight to the biased whole-web
+        // query the fallback would have run: one request instead of two, with the same final results.
+        // (A mix that includes a well-indexed board like linkedin.com keeps the restricted-first flow.)
+        if (domains.Count > 0 && domains.All(IsPoorlyIndexed))
+        {
+            var biasedFirst = $"{query} {string.Join(' ', domains)}";
+            var (biasedItems, biasedError) = await SearchAsync(
+                biasedFirst, clampedMax, includeDomains: null, timeRange, startDate, endDate, isFallback: false, ct);
+            if (biasedError is not null)
+                return biasedError;
+
+            logger.LogInformation(
+                "Tavily whole-web (poorly-indexed sources {Domains}) returned {Count} result(s) for query {Query}.",
+                Describe(domains), biasedItems.Count, biasedFirst);
+            return Project(biasedItems);
+        }
+
         // First attempt: hard-restrict to the selected sources via Tavily's include_domains.
         var (items, error) = await SearchAsync(
             query, clampedMax, domains.Count > 0 ? domains.ToArray() : null,
@@ -88,7 +108,21 @@ public sealed class JobSearchPlugin(
             }
         }
 
-        // Return a compact JSON array the agent can reason over (incl. a published date when present).
+        return Project(items);
+    }
+
+    // Job boards that Tavily indexes so poorly that a domain-restricted search reliably returns nothing,
+    // so we go straight to the whole-web biased query instead of burning a request on the empty restrict.
+    private static readonly HashSet<string> PoorlyIndexedDomains = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "itviec.com", "topcv.vn", "vietnamworks.com",
+    };
+
+    private static bool IsPoorlyIndexed(string domain) => PoorlyIndexedDomains.Contains(domain);
+
+    /// <summary>Compact JSON array the agent can reason over (incl. a published date when present).</summary>
+    private string Project(List<TavilyResult> items)
+    {
         var projected = items.Select(r => new
         {
             r.Title,
@@ -125,12 +159,15 @@ public sealed class JobSearchPlugin(
             searchCounts.Add(runId, agent, isFallback);
         }
 
-        // "advanced" gives much better recall on niche / JS-heavy sites (e.g. itviec.com) than "basic".
+        // "advanced" gives much better recall on niche / JS-heavy sites (e.g. itviec.com) than "basic",
+        // but costs 2 Tavily credits vs 1. The user picks the depth per call kind in Settings.
+        var kind = ClassifyCall(context.CurrentAgent, isFallback);
+        var depth = context.SearchDepth.IsAdvanced(kind) ? "advanced" : "basic";
         var request = new TavilyRequest(
             ApiKey: _tavily.ApiKey,
             Query: query,
             MaxResults: maxResults,
-            SearchDepth: "advanced",
+            SearchDepth: depth,
             IncludeDomains: includeDomains,
             TimeRange: string.IsNullOrWhiteSpace(timeRange) ? null : timeRange,
             StartDate: string.IsNullOrWhiteSpace(startDate) ? null : startDate,
@@ -167,6 +204,19 @@ public sealed class JobSearchPlugin(
     {
         value ??= string.Empty;
         return value.Length <= max ? value : value[..max];
+    }
+
+    /// <summary>Maps the executing agent (+ fallback flag) to the search-call kind for depth selection.</summary>
+    private static SearchCallKind ClassifyCall(AgentId? agent, bool isFallback)
+    {
+        var value = (agent ?? AgentId.System).Value;
+        if (value == AgentId.Search.Value)
+            return isFallback ? SearchCallKind.SourcingFallback : SearchCallKind.Sourcing;
+        if (value.StartsWith("company-research", StringComparison.Ordinal))
+            return SearchCallKind.CompanyResearch;
+        if (value.StartsWith("salary-analysis", StringComparison.Ordinal))
+            return SearchCallKind.SalaryAnalysis;
+        return SearchCallKind.Other;
     }
 
     private static string Describe(IReadOnlyList<string> domains) =>

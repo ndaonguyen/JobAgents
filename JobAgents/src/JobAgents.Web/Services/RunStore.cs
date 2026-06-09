@@ -19,7 +19,9 @@ public sealed record SearchInputs(
     string? StartDate = null,
     string? EndDate = null,
     SearchCriteria? Criteria = null,
-    int SearchEffort = 6)
+    int SearchEffort = 6,
+    bool ResearchCompany = false,
+    bool ResearchSalary = false)
 {
     public static SearchInputs Empty { get; } =
         new([], [], [], string.Empty, null, null, "USD", string.Empty, []);

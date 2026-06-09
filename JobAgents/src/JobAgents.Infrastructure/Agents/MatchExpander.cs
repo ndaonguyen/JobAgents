@@ -19,8 +19,41 @@ public sealed class MatchExpander(
     AgentRunContext context)
     : IMatchExpander
 {
-    public async Task<JobDossier> ExpandAsync(
-        JobMatch match, SearchCriteria criteria, JobHuntConfig config, CancellationToken ct = default)
+    public Task<JobDossier> ExpandAsync(
+        JobMatch match, SearchCriteria criteria, JobHuntConfig config, CancellationToken ct = default) =>
+        RunIsolatedAsync(config, async runId =>
+        {
+            var posting = match.Posting;
+            var companyTask = companyResearchAgent.ResearchAsync(runId, 0, posting.Company, config, ct);
+            var salaryTask = salaryAnalysisAgent.AnalyzeAsync(runId, 0, posting, criteria, config, ct);
+            var interviewTask = interviewPrepAgent.PrepareAsync(runId, 0, posting, match, config, ct);
+
+            await Task.WhenAll(companyTask, salaryTask, interviewTask);
+            return new JobDossier(match, companyTask.Result, salaryTask.Result, interviewTask.Result);
+        }, ct);
+
+    public Task<CompanyInsight> ResearchCompanyAsync(
+        JobMatch match, JobHuntConfig config, CancellationToken ct = default) =>
+        RunIsolatedAsync(config, runId =>
+            companyResearchAgent.ResearchAsync(runId, 0, match.Posting.Company, config, ct), ct);
+
+    public Task<SalaryEstimate> ResearchSalaryAsync(
+        JobMatch match, SearchCriteria criteria, JobHuntConfig config, CancellationToken ct = default) =>
+        RunIsolatedAsync(config, runId =>
+            salaryAnalysisAgent.AnalyzeAsync(runId, 0, match.Posting, criteria, config, ct), ct);
+
+    public Task<InterviewPrep> ResearchInterviewAsync(
+        JobMatch match, JobHuntConfig config, CancellationToken ct = default) =>
+        RunIsolatedAsync(config, runId =>
+            interviewPrepAgent.PrepareAsync(runId, 0, match.Posting, match, config, ct), ct);
+
+    /// <summary>
+    /// Runs <paramref name="work"/> under a throwaway run id whose agent events are drained and
+    /// discarded, then closes the bus channel with a terminal System event. Shared by the full
+    /// expand and the single-specialist on-demand calls.
+    /// </summary>
+    private async Task<T> RunIsolatedAsync<T>(
+        JobHuntConfig config, Func<RunId, Task<T>> work, CancellationToken ct)
     {
         var runId = RunId.New();
         context.IncludeDomains = config.IncludeDomains ?? Array.Empty<string>();
@@ -30,19 +63,13 @@ public sealed class MatchExpander(
         {
             await foreach (var _ in bus.SubscribeAsync(runId, ct))
             {
-                // discard — the UI awaits the returned dossier instead of streaming.
+                // discard — the UI awaits the returned value instead of streaming.
             }
         }, ct);
 
         try
         {
-            var posting = match.Posting;
-            var companyTask = companyResearchAgent.ResearchAsync(runId, 0, posting.Company, config, ct);
-            var salaryTask = salaryAnalysisAgent.AnalyzeAsync(runId, 0, posting, criteria, config, ct);
-            var interviewTask = interviewPrepAgent.PrepareAsync(runId, 0, posting, match, config, ct);
-
-            await Task.WhenAll(companyTask, salaryTask, interviewTask);
-            return new JobDossier(match, companyTask.Result, salaryTask.Result, interviewTask.Result);
+            return await work(runId);
         }
         finally
         {

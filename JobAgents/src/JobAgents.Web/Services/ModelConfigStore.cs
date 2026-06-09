@@ -1,4 +1,5 @@
 using System.Text.Json;
+using JobAgents.Application.Abstractions;
 
 namespace JobAgents.Web.Services;
 
@@ -13,6 +14,11 @@ public sealed record AgentModelConfig(
     string? CompanyResearchModel = null,
     string? SalaryAnalysisModel = null,
     string? InterviewPrepModel = null,
+    // When true, the run researches up to 2 matches at once; when false it works one at a time
+    // (slower, but only ever one web-search agent live at a time). Defaults to parallel.
+    bool ParallelSearch = true,
+    // Per-call Tavily search-depth policy. null = use defaults (advanced only for primary sourcing).
+    SearchDepthSettings? SearchDepth = null,
     DateTime UpdatedAtUtc = default);
 
 /// <summary>A selectable model: the id passed to the agents, plus a friendly label for the dropdown.</summary>

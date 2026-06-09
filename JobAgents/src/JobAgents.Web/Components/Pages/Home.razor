@@ -335,6 +335,24 @@
                 </div>
             }
 
+            <div class="mb-3">
+                <label class="form-label small mb-1 d-block">
+                    Extra research <span class="text-muted">(off by default — each adds web searches; turn on to include)</span>
+                </label>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button"
+                            class="btn @(_researchCompany ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => _researchCompany = !_researchCompany">
+                        🏢 Company research: @(_researchCompany ? "on" : "off")
+                    </button>
+                    <button type="button"
+                            class="btn @(_researchSalary ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => _researchSalary = !_researchSalary">
+                        💰 Salary research: @(_researchSalary ? "on" : "off")
+                    </button>
+                </div>
+            </div>
+
             <button type="submit" class="btn btn-primary" disabled="@(_running || string.IsNullOrWhiteSpace(_resume))">
                 @if (_running)
                 {
@@ -428,8 +446,13 @@
             @foreach (var dossier in _dossiers.Take(_visibleCount))
             {
                 var key = DossierKey(dossier);
-                <DossierCard Dossier="dossier" Expanding="_expanding.Contains(key)"
-                             OnExpand="() => ExpandDossierAsync(dossier)"
+                <DossierCard Dossier="dossier"
+                             OnResearchCompany="() => ResearchCompanyAsync(dossier)"
+                             OnResearchSalary="() => ResearchSalaryAsync(dossier)"
+                             OnResearchInterview="() => ResearchInterviewAsync(dossier)"
+                             ResearchingCompany="_researchingCompany.Contains(key)"
+                             ResearchingSalary="_researchingSalary.Contains(key)"
+                             ResearchingInterview="_researchingInterview.Contains(key)"
                              EnableFeedback="true"
                              OnSubmitScore="s => SaveFeedbackAsync(dossier, s)" />
             }
@@ -531,6 +554,9 @@
     private readonly HashSet<string> _selectedSources = new();
     private int _minMatchScore = 60;
     private int _lastMinScore = 60;
+    // Opt-in extra research, OFF by default to save Tavily calls; user toggles each on per run.
+    private bool _researchCompany;
+    private bool _researchSalary;
     private string _postedWithin = "month"; // default to the last month to avoid stale results
     private string _lastPreferences = string.Empty;
     private SearchInputs _lastInputs = SearchInputs.Empty;
@@ -574,7 +600,10 @@
     private const int PageSize = 5;
     private int _visibleCount = PageSize;
     private List<JobDossier> _dossiers = new();
-    private readonly HashSet<string> _expanding = new();
+    // In-flight on-demand research, tracked per dossier key so each card shows its own spinner.
+    private readonly HashSet<string> _researchingCompany = new();
+    private readonly HashSet<string> _researchingSalary = new();
+    private readonly HashSet<string> _researchingInterview = new();
 
     private readonly List<ActivityItem> _activity = new();
     private readonly Dictionary<string, ActivityItem> _streaming = new();
@@ -721,6 +750,8 @@
             _selectedSources.Add(source);
         _minMatchScore = Math.Clamp(inputs.MinMatchScore, 0, 100);
         _searchEffort = SearchEffortOptions.Any(o => o.Value == inputs.SearchEffort) ? inputs.SearchEffort : 6;
+        _researchCompany = inputs.ResearchCompany;
+        _researchSalary = inputs.ResearchSalary;
         _postedWithin = PostedWithinOptions.Values.Contains(inputs.PostedWithin ?? "") ? inputs.PostedWithin ?? "" : "month";
         _fromDate = ParseDate(inputs.StartDate);
         _toDate = ParseDate(inputs.EndDate);
@@ -749,7 +780,9 @@
         StartDate: _fromDate?.ToString("yyyy-MM-dd"),
         EndDate: _toDate?.ToString("yyyy-MM-dd"),
         Criteria: BuildOverrideCriteria(),
-        SearchEffort: _searchEffort);
+        SearchEffort: _searchEffort,
+        ResearchCompany: _researchCompany,
+        ResearchSalary: _researchSalary);
 
     /// <summary>
     /// The reviewed/edited criteria to run with, or null if the user never analyzed. Persisted with
@@ -996,7 +1029,9 @@
         _otherCost = 0m;
         _result = null;
         _dossiers = new();
-        _expanding.Clear();
+        _researchingCompany.Clear();
+        _researchingSalary.Clear();
+        _researchingInterview.Clear();
         _visibleCount = PageSize;
         _activity.Clear();
         _streaming.Clear();
@@ -1039,7 +1074,13 @@
             IncludeDomains = domains,
             MaxResults = maxResults,
             MaxSearches = maxSearches,
+            // Parallel search (Settings): research 2 matches at once, or 1-by-1 when off.
+            MaxFanOutConcurrency = models.ParallelSearch ? 2 : 1,
+            // Per-call Tavily search-depth policy (Settings).
+            SearchDepth = models.SearchDepth ?? SearchDepthSettings.Default,
             MinMatchScore = _minMatchScore,
+            ResearchCompany = _researchCompany,
+            ResearchSalary = _researchSalary,
             TimeRange = string.IsNullOrEmpty(_postedWithin) ? null : _postedWithin,
             StartDate = _fromDate?.ToString("yyyy-MM-dd"),
             EndDate = _toDate?.ToString("yyyy-MM-dd"),
@@ -1229,30 +1270,51 @@
             ? $"{d.Match.Posting.Title}|{d.Match.Posting.Company}"
             : d.Match.Posting.Url;
 
-    private async Task ExpandDossierAsync(JobDossier dossier)
+    private Task ResearchCompanyAsync(JobDossier dossier) => ResearchPieceAsync(
+        dossier, _researchingCompany, "company",
+        async () => await Expander.ResearchCompanyAsync(dossier.Match, JobHuntConfig.Default),
+        (d, r) => d with { Company = r });
+
+    private Task ResearchSalaryAsync(JobDossier dossier) => ResearchPieceAsync(
+        dossier, _researchingSalary, "salary",
+        async () => await Expander.ResearchSalaryAsync(dossier.Match, _result!.Criteria, JobHuntConfig.Default),
+        (d, r) => d with { Salary = r });
+
+    private Task ResearchInterviewAsync(JobDossier dossier) => ResearchPieceAsync(
+        dossier, _researchingInterview, "interview prep",
+        async () => await Expander.ResearchInterviewAsync(dossier.Match, JobHuntConfig.Default),
+        (d, r) => d with { Interview = r });
+
+    /// <summary>
+    /// Runs one on-demand specialist for a single card: guards against double-clicks via
+    /// <paramref name="inFlight"/>, then merges the result back into the dossier with <paramref name="merge"/>.
+    /// </summary>
+    private async Task ResearchPieceAsync<T>(
+        JobDossier dossier, HashSet<string> inFlight, string label,
+        Func<Task<T>> research, Func<JobDossier, T, JobDossier> merge)
     {
         if (_result is null)
             return;
 
         var key = DossierKey(dossier);
-        if (!_expanding.Add(key))
+        if (!inFlight.Add(key))
             return; // already in progress
 
         await InvokeAsync(StateHasChanged);
         try
         {
-            var full = await Expander.ExpandAsync(dossier.Match, _result.Criteria, JobHuntConfig.Default);
+            var result = await research();
             var index = _dossiers.FindIndex(d => DossierKey(d) == key);
             if (index >= 0)
-                _dossiers[index] = full;
+                _dossiers[index] = merge(_dossiers[index], result);
         }
         catch (Exception ex)
         {
-            _error = $"Couldn't research that role: {ex.Message}";
+            _error = $"Couldn't research {label} for that role: {ex.Message}";
         }
         finally
         {
-            _expanding.Remove(key);
+            inFlight.Remove(key);
             await InvokeAsync(StateHasChanged);
         }
     }
