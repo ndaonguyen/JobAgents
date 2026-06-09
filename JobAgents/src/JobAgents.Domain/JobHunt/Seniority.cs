@@ -51,16 +51,30 @@ public static class Seniority
         ["fellow"] = SeniorityLevel.Principal,
     };
 
+    // Words that double as ordinary verbs/nouns in prose ("to lead delivery", "head of design"), so they
+    // only signal seniority in a terse title — never when scanning a free-text description.
+    private static readonly HashSet<string> TitleOnlyWords = new(StringComparer.Ordinal)
+    {
+        "lead",
+        "head",
+    };
+
     /// <summary>The highest level word found in <paramref name="text"/>, or Unknown if none.</summary>
-    public static SeniorityLevel Detect(string? text)
+    public static SeniorityLevel Detect(string? text) => Detect(text, excludeAmbiguous: false);
+
+    private static SeniorityLevel Detect(string? text, bool excludeAmbiguous)
     {
         if (string.IsNullOrWhiteSpace(text))
             return SeniorityLevel.Unknown;
 
         var best = SeniorityLevel.Unknown;
         foreach (var word in Words(text))
+        {
+            if (excludeAmbiguous && TitleOnlyWords.Contains(word))
+                continue;
             if (WordLevels.TryGetValue(word, out var level) && level > best)
                 best = level;
+        }
 
         return best;
     }
@@ -73,7 +87,8 @@ public static class Seniority
     public static SeniorityLevel DetectFromPosting(JobPosting posting)
     {
         var fromTitle = Detect(posting.Title);
-        return fromTitle != SeniorityLevel.Unknown ? fromTitle : Detect(posting.Description);
+        // Prose fallback excludes verb-ambiguous words so "lead delivery" in a body doesn't read as Lead.
+        return fromTitle != SeniorityLevel.Unknown ? fromTitle : Detect(posting.Description, excludeAmbiguous: true);
     }
 
     /// <summary>Parses the requested seniority string (e.g. "Lead", "Senior") into a level.</summary>
