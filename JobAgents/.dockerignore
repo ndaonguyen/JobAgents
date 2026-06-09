@@ -1,0 +1,13 @@
+# Keep the build context small and the image clean.
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+.git/
+.github/
+results/
+*.user
+**/appsettings.*.json
+README*.md
+docs/
