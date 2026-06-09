@@ -55,6 +55,31 @@
             </div>
         }
 
+        @{
+            var summary = Dossier.Match.Posting.Summary;
+            var description = Dossier.Match.Posting.Description;
+            // Show the full description only when it adds something beyond the summary.
+            var hasFullDescription = !string.IsNullOrWhiteSpace(description)
+                && !string.Equals(description?.Trim(), summary?.Trim(), StringComparison.Ordinal);
+        }
+        @if (!string.IsNullOrWhiteSpace(summary) || hasFullDescription)
+        {
+            <div class="mb-2">
+                <h6>📋 Role &amp; requirements</h6>
+                @if (!string.IsNullOrWhiteSpace(summary))
+                {
+                    <p class="small mb-1">@summary</p>
+                }
+                @if (hasFullDescription)
+                {
+                    <details>
+                        <summary class="small text-primary" style="cursor: pointer;">Show full posting</summary>
+                        <div class="small text-muted mt-1" style="white-space: pre-wrap; word-break: break-word;">@description</div>
+                    </details>
+                }
+            </div>
+        }
+
         <div class="row mt-3">
             <div class="col-md-6 mb-2">
                 <h6>🏢 Company</h6>

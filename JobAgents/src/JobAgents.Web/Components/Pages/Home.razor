@@ -1078,6 +1078,10 @@
             MaxFanOutConcurrency = models.ParallelSearch ? 2 : 1,
             // Per-call Tavily search-depth policy (Settings).
             SearchDepth = models.SearchDepth ?? SearchDepthSettings.Default,
+            // Input-truncation caps (Settings): 0 = no cap.
+            MaxResumeChars = models.MaxResumeChars,
+            MaxDescriptionChars = models.MaxDescriptionChars,
+            MaxSearchResultChars = models.MaxSearchResultChars,
             MinMatchScore = _minMatchScore,
             ResearchCompany = _researchCompany,
             ResearchSalary = _researchSalary,

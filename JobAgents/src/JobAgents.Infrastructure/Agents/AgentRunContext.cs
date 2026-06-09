@@ -19,6 +19,7 @@ public sealed class AgentRunContext
     private static readonly AsyncLocal<string?> _startDate = new();
     private static readonly AsyncLocal<string?> _endDate = new();
     private static readonly AsyncLocal<SearchDepthSettings?> _searchDepth = new();
+    private static readonly AsyncLocal<int?> _maxSearchResultChars = new();
 
     public RunId? CurrentRun
     {
@@ -64,6 +65,14 @@ public sealed class AgentRunContext
     {
         get => _searchDepth.Value ?? SearchDepthSettings.Default;
         set => _searchDepth.Value = value;
+    }
+
+    /// <summary>Max characters of each web-search result's content kept before handing it to the agent
+    /// (0 = no cap). Defaults to 400 — the plugin's previous hard-coded value.</summary>
+    public int MaxSearchResultChars
+    {
+        get => _maxSearchResultChars.Value ?? 400;
+        set => _maxSearchResultChars.Value = value;
     }
 
     public void Set(RunId runId, AgentId agentId)

@@ -19,6 +19,11 @@ public sealed record AgentModelConfig(
     bool ParallelSearch = true,
     // Per-call Tavily search-depth policy. null = use defaults (advanced only for primary sourcing).
     SearchDepthSettings? SearchDepth = null,
+    // Input-truncation caps (characters, 0 = no cap) to bound prompt size / token cost. Resume and
+    // description default to uncapped (no quality change); each search result's body defaults to 400.
+    int MaxResumeChars = 0,
+    int MaxDescriptionChars = 0,
+    int MaxSearchResultChars = 400,
     DateTime UpdatedAtUtc = default);
 
 /// <summary>A selectable model: the id passed to the agents, plus a friendly label for the dropdown.</summary>
