@@ -20,17 +20,17 @@ jobs:
       contents: read
       checks: write             # test-reporter publishes a check run with results
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           # Honours global.json (SDK 9.0.x, rollForward latestFeature).
           global-json-file: global.json
 
       # Cache the NuGet package cache keyed on the lock-free central package list.
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props') }}
@@ -50,7 +50,7 @@ jobs:
       # Publish a check run with per-test pass/fail — visible in the PR without digging through logs.
       # Runs even when tests fail so failures surface in the UI.
       - name: Publish test results
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: ${{ !cancelled() }}
         with:
           name: Tests
