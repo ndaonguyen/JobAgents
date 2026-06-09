@@ -58,7 +58,15 @@ public sealed class Coordinator(
             logger.LogInformation("Run {RunId}: served {Count} postings from cache; skipped live search.", runId, cached.Count);
         }
 
-        var postings = Dedupe(cached.Concat(fresh).ToList()).Take(config.MaxResults).ToList();
+        // Hard seniority gate: drop postings clearly BELOW the requested level. The cache already
+        // applies this on its own query, but the live search does not — so without this a freshly
+        // searched Senior role would slip through a Lead/Staff filter (it was only soft-capped by the
+        // matcher before). Title-based + description fallback; Unknown levels pass (lenient).
+        var seniorityFloor = Seniority.Parse(criteria.Seniority);
+        var postings = Dedupe(cached.Concat(fresh).ToList())
+            .Where(p => !Seniority.IsBelowFloor(p, seniorityFloor))
+            .Take(config.MaxResults)
+            .ToList();
         await bus.PublishAsync(new JobsFoundEvent(runId, AgentId.Search, postings, DateTime.UtcNow), ct);
 
         // 3. Match every posting in parallel (concurrency-gated).

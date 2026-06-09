@@ -65,8 +65,16 @@ public static class Seniority
         return best;
     }
 
-    /// <summary>Detects a posting's level from its title (the reliable level-bearing field).</summary>
-    public static SeniorityLevel DetectFromPosting(JobPosting posting) => Detect(posting.Title);
+    /// <summary>
+    /// Detects a posting's level from its title (the reliable level-bearing field). When the title
+    /// carries no level word, falls back to the posting body — so level-less titles like
+    /// ".NET Developer" whose description names the level (e.g. "senior role") still get classified.
+    /// </summary>
+    public static SeniorityLevel DetectFromPosting(JobPosting posting)
+    {
+        var fromTitle = Detect(posting.Title);
+        return fromTitle != SeniorityLevel.Unknown ? fromTitle : Detect(posting.Description);
+    }
 
     /// <summary>Parses the requested seniority string (e.g. "Lead", "Senior") into a level.</summary>
     public static SeniorityLevel Parse(string? requested) => Detect(requested);

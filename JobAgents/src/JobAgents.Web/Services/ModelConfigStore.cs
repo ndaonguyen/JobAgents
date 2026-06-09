@@ -37,7 +37,6 @@ public static class ModelCatalog
         new("claude-haiku-4-5", "Claude Haiku 4.5"),
         new("claude-sonnet-4", "Claude Sonnet 4"),
         new("claude-opus-4", "Claude Opus 4"),
-        new("claude-3-5-haiku", "Claude 3.5 Haiku"),
         new("gpt-4o-mini", "GPT-4o mini"),
         new("gpt-4o", "GPT-4o"),
         new("gpt-4.1-mini", "GPT-4.1 mini"),

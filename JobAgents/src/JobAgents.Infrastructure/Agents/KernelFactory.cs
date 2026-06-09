@@ -41,11 +41,25 @@ public sealed class KernelFactory(
     private static bool IsClaude(string model) =>
         model.StartsWith("claude", StringComparison.OrdinalIgnoreCase);
 
+    // Anthropic's API rejects bare base ids (HTTP 404 not_found_error) — it wants a dated snapshot or a
+    // documented alias. The model picker stores short ids (and old configs already saved them), so map
+    // them to valid API ids here, at the one place a model id is handed to the connector. Pricing stays
+    // prefix-based, so the resolved id still matches its row.
+    private static readonly Dictionary<string, string> ClaudeIdAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["claude-haiku-4-5"] = "claude-haiku-4-5-20251001",
+        ["claude-sonnet-4"]  = "claude-sonnet-4-0",
+        ["claude-opus-4"]    = "claude-opus-4-0",
+    };
+
+    private static string ResolveModelId(string model) =>
+        ClaudeIdAliases.TryGetValue(model, out var resolved) ? resolved : model;
+
     public Kernel Create(string? modelOverride = null, bool includePlugins = true)
     {
         var builder = Kernel.CreateBuilder();
 
-        var model = modelOverride ?? _openAi.Model;
+        var model = ResolveModelId(modelOverride ?? _openAi.Model);
 
         // Claude is reached via Anthropic's OpenAI-compatible endpoint: same connector, the named
         // "anthropic" HttpClient points at api.anthropic.com/v1 and carries the Anthropic key.

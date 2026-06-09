@@ -3,6 +3,7 @@
 @using JobAgents.Domain.Runs
 @inject ProfileStore Profile
 @inject IJdAnalysisAgent Analyzer
+@inject ResumeTextExtractor TextExtractor
 
 <PageTitle>JD Analyzer · JobAgents</PageTitle>
 
@@ -25,6 +26,15 @@
         }
         <textarea class="form-control" rows="12" @bind="_resumeText" @bind:event="oninput"
                   placeholder="Paste your CV / resume text…"></textarea>
+        <div class="mt-2">
+            <InputFile class="form-control form-control-sm" accept=".txt,.md,.pdf,.docx"
+                       OnChange="e => OnFileSelectedAsync(e, isCv: true)" />
+            <div class="form-text">Or upload a file — PDF, Word (.docx), or text (.txt, .md). Max 5&nbsp;MB.</div>
+            @if (_cvUploadStatus is not null)
+            {
+                <div class="small @(_cvUploadFailed ? "text-danger" : "text-success")">@_cvUploadStatus</div>
+            }
+        </div>
     </div>
 
     <div class="col-lg-6">
@@ -32,6 +42,15 @@
         <div class="form-text mb-1">Paste the full JD — responsibilities, requirements, must-have skills.</div>
         <textarea class="form-control" rows="12" @bind="_jobDescription" @bind:event="oninput"
                   placeholder="Paste the job description here…"></textarea>
+        <div class="mt-2">
+            <InputFile class="form-control form-control-sm" accept=".txt,.md,.pdf,.docx"
+                       OnChange="e => OnFileSelectedAsync(e, isCv: false)" />
+            <div class="form-text">Or upload a file — PDF, Word (.docx), or text (.txt, .md). Max 5&nbsp;MB.</div>
+            @if (_jdUploadStatus is not null)
+            {
+                <div class="small @(_jdUploadFailed ? "text-danger" : "text-success")">@_jdUploadStatus</div>
+            }
+        </div>
     </div>
 </div>
 
@@ -168,12 +187,19 @@
 }
 
 @code {
+    private const long MaxUploadBytes = 5 * 1024 * 1024;
+
     private string _resumeText = string.Empty;
     private string _jobDescription = string.Empty;
     private bool _cvFromProfile;
     private bool _running;
     private string? _error;
     private JdAnalysis? _result;
+
+    private string? _cvUploadStatus;
+    private bool _cvUploadFailed;
+    private string? _jdUploadStatus;
+    private bool _jdUploadFailed;
 
     private bool CanAnalyze =>
         !_running
@@ -187,6 +213,53 @@
         {
             _resumeText = profile.ResumeText;
             _cvFromProfile = true;
+        }
+    }
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e, bool isCv)
+    {
+        var file = e.File;
+
+        void SetStatus(bool failed, string message)
+        {
+            if (isCv) { _cvUploadFailed = failed; _cvUploadStatus = message; }
+            else { _jdUploadFailed = failed; _jdUploadStatus = message; }
+        }
+
+        if (!TextExtractor.IsSupported(file.Name))
+        {
+            SetStatus(true, $"Unsupported file type. Use {string.Join(", ", ResumeTextExtractor.SupportedExtensions)}.");
+            return;
+        }
+
+        try
+        {
+            using var buffer = new MemoryStream();
+            await file.OpenReadStream(MaxUploadBytes).CopyToAsync(buffer);
+            buffer.Position = 0;
+
+            var text = TextExtractor.Extract(file.Name, buffer);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                SetStatus(true, "No text could be extracted from that file.");
+                return;
+            }
+
+            if (isCv)
+            {
+                _resumeText = text;
+                _cvFromProfile = false;
+            }
+            else
+            {
+                _jobDescription = text;
+            }
+
+            SetStatus(false, $"Loaded {file.Name} ✓");
+        }
+        catch (Exception ex)
+        {
+            SetStatus(true, $"Could not read file: {ex.Message}");
         }
     }
 
