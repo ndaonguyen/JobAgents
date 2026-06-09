@@ -1,0 +1,38 @@
+name: CI
+
+# Build and test on every push to main and on every PR targeting main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Honours global.json (SDK 9.0.x, rollForward latestFeature).
+          global-json-file: global.json
+
+      # Cache the NuGet package cache keyed on the lock-free central package list.
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore JobAgents.sln
+
+      - name: Build
+        run: dotnet build JobAgents.sln --configuration Release --no-restore
+
+      # `dotnet test` only runs projects marked IsTestProject — the Evals console app is skipped.
+      - name: Test
+        run: dotnet test JobAgents.sln --configuration Release --no-build --verbosity normal
