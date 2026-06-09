@@ -26,6 +26,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Buildx with the docker-container driver — required for GHA cache export (cache-to: type=gha).
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       # Produces lowercased, properly-tagged image refs (latest + commit SHA).
       - name: Compute image metadata
         id: meta
