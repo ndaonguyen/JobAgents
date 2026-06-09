@@ -123,11 +123,14 @@ public sealed class JobSearchPlugin(
     /// <summary>Compact JSON array the agent can reason over (incl. a published date when present).</summary>
     private string Project(List<TavilyResult> items)
     {
+        // Per-run cap on how much of each result's body the agent sees (0 = no cap). Trades prompt
+        // tokens for context; defaults to 400.
+        var maxContent = context.MaxSearchResultChars;
         var projected = items.Select(r => new
         {
             r.Title,
             r.Url,
-            Content = Truncate(r.Content, 400),
+            Content = Truncate(r.Content, maxContent),
             PublishedDate = r.PublishedDate,
         });
         return JsonSerializer.Serialize(projected, JsonOptions);
@@ -203,6 +206,8 @@ public sealed class JobSearchPlugin(
     private static string Truncate(string? value, int max)
     {
         value ??= string.Empty;
+        if (max <= 0)
+            return value; // 0 / negative = no cap.
         return value.Length <= max ? value : value[..max];
     }
 

@@ -64,6 +64,27 @@
     </section>
 
     <section class="card section-card mb-4">
+        <div class="card-header section-header">Input limits (truncation)</div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Cap how much text each agent sees to cut prompt tokens / cost. <strong>0 = no cap.</strong>
+                Lower values save tokens but give the model less context.
+            </p>
+            <div class="row g-3">
+                @foreach (var l in LimitSlots)
+                {
+                    <div class="col-12 col-md-4">
+                        <label class="form-label fw-semibold" for="lim-@l.Key">@l.Label</label>
+                        <input type="number" min="0" step="100" class="form-control form-control-sm" id="lim-@l.Key"
+                               value="@l.Get(_config)" @onchange="e => OnLimitChangedAsync(l, e)" />
+                        <span class="text-muted small d-block">@l.Desc</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
+
+    <section class="card section-card mb-4">
         <div class="card-header section-header">Agent models</div>
         <div class="card-body">
             <div class="row g-3">
@@ -118,6 +139,21 @@
         new("salary", "Salary analysis", "Market salary range for the role, location and seniority.", d => d.SalaryAnalysis, (d, v) => d with { SalaryAnalysis = v }),
     ];
 
+    // One row per input-truncation cap (characters, 0 = no cap).
+    private sealed record LimitSlot(
+        string Key,
+        string Label,
+        string Desc,
+        Func<AgentModelConfig, int> Get,
+        Func<AgentModelConfig, int, AgentModelConfig> With);
+
+    private static readonly LimitSlot[] LimitSlots =
+    [
+        new("resume", "Resume", "CV characters sent to the matcher. 0 = no cap.", c => c.MaxResumeChars, (c, v) => c with { MaxResumeChars = v }),
+        new("desc", "Job description", "Posting-description characters sent to the matcher. 0 = no cap.", c => c.MaxDescriptionChars, (c, v) => c with { MaxDescriptionChars = v }),
+        new("result", "Web-search result body", "Characters kept from each web result before the agent reads it. 0 = no cap.", c => c.MaxSearchResultChars, (c, v) => c with { MaxSearchResultChars = v }),
+    ];
+
     private AgentModelConfig _config = new();
     private string _status = "";
 
@@ -145,6 +181,15 @@
     private async Task OnDepthChangedAsync(DepthSlot slot, ChangeEventArgs e)
     {
         _config = _config with { SearchDepth = slot.With(Depth, e.Value is true) };
+        await Models.SaveAsync(_config);
+        _status = "Saved ✓";
+    }
+
+    private async Task OnLimitChangedAsync(LimitSlot slot, ChangeEventArgs e)
+    {
+        // Parse to a non-negative int; anything invalid resets that cap to 0 (no cap).
+        var n = int.TryParse(e.Value?.ToString(), out var v) && v >= 0 ? v : 0;
+        _config = slot.With(_config, n);
         await Models.SaveAsync(_config);
         _status = "Saved ✓";
     }

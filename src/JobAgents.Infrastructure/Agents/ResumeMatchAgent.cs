@@ -60,10 +60,13 @@ public sealed class ResumeMatchAgent(IAgentRunner runner, IOptions<JobAgentsOpti
         JobHuntConfig config, CancellationToken ct)
     {
         var description = string.IsNullOrWhiteSpace(posting.Description) ? posting.Summary : posting.Description;
+        // Optional input-truncation caps (0 = no cap) to bound matcher prompt size / cost.
+        var resume = Truncate(resumeText, config.MaxResumeChars);
+        description = Truncate(description, config.MaxDescriptionChars);
         var userPrompt =
             $"""
             CANDIDATE RESUME:
-            {resumeText}
+            {resume}
 
             TARGET CRITERIA:
             - Target roles: {Join(criteria.Roles)}
@@ -180,4 +183,13 @@ public sealed class ResumeMatchAgent(IAgentRunner runner, IOptions<JobAgentsOpti
 
     private static string Or(string value) =>
         string.IsNullOrWhiteSpace(value) ? "(any)" : value;
+
+    // Caps text to max characters; 0 / negative = no cap.
+    private static string Truncate(string? value, int max)
+    {
+        value ??= string.Empty;
+        if (max <= 0)
+            return value;
+        return value.Length <= max ? value : value[..max];
+    }
 }

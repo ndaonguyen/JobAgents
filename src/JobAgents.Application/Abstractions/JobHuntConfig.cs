@@ -57,6 +57,12 @@ public sealed record JobHuntConfig(
     int MinMatchScore = 60,
     bool ResearchCompany = true,
     bool ResearchSalary = true,
+    // Input-truncation caps (characters). 0 = no cap. Resume/description default to uncapped so quality
+    // is unchanged unless the user opts in; the per-search-result content cap defaults to 400 (its
+    // previous hard-coded value). Lower these to cut prompt tokens at the cost of context.
+    int MaxResumeChars = 0,
+    int MaxDescriptionChars = 0,
+    int MaxSearchResultChars = 400,
     SearchDepthSettings? SearchDepth = null,
     IReadOnlyList<string>? IncludeDomains = null,
     string? TimeRange = null,

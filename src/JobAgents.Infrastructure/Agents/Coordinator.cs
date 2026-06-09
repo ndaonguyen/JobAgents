@@ -39,6 +39,7 @@ public sealed class Coordinator(
         context.StartDate = config.StartDate;
         context.EndDate = config.EndDate;
         context.SearchDepth = config.SearchDepth ?? SearchDepthSettings.Default;
+        context.MaxSearchResultChars = config.MaxSearchResultChars;
 
         // 1. Parse criteria — unless the caller already supplied (user-edited) criteria.
         var criteria = request.Criteria ?? await ParseCriteriaCoreAsync(request, config, ct);
