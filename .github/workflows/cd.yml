@@ -1,23 +1,39 @@
 name: CD
 
-# Continuous delivery: on every push to main, build a container image and publish it to the
-# GitHub Container Registry (GHCR — free, no extra account). A Fly.io deploy then runs only if a
-# FLY_API_TOKEN secret is present, so the pipeline stays green before any host is configured.
+# Continuous delivery: on every push to main, run the test suite, then build a container image and
+# publish it to the GitHub Container Registry (GHCR — free, no extra account). A Fly.io deploy then
+# runs only if a FLY_API_TOKEN secret is present, so the pipeline stays green before any host is
+# configured. The Fly deploy reuses the exact image built here (by SHA), so tested == deployed.
 on:
   push:
     branches: [main]
   workflow_dispatch: {}
 
+# Never run two deploys for the same ref at once; let an in-flight deploy finish (don't cancel it).
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write           # needed to push to GHCR
     outputs:
-      image: ${{ steps.meta.outputs.tags }}
+      image: ${{ steps.ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      # Gate the image build on a passing test suite — never publish/deploy an untested commit.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Test
+        run: dotnet test JobAgents.sln --configuration Release --verbosity normal
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -50,9 +66,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Lowercased, immutable by-SHA ref of the image just pushed — consumed by the deploy job.
+      - name: Compute image ref
+        id: ref
+        env:
+          REPO: ${{ github.repository }}
+        run: echo "image=ghcr.io/${REPO,,}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
   deploy-fly:
     needs: image
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Job-level secrets can't be read in `if`, so surface the token as an env var and gate on it.
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
@@ -66,9 +90,9 @@ jobs:
 
       - name: Setup flyctl
         if: ${{ env.FLY_API_TOKEN != '' }}
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@v1
 
-      # Deploys using fly.toml in the repo root. Free-tier Fly machine, scales to zero when idle.
+      # Deploy the exact image built+tested above (by SHA) — no rebuild. Uses fly.toml in the repo root.
       - name: Deploy
         if: ${{ env.FLY_API_TOKEN != '' }}
-        run: flyctl deploy --remote-only
+        run: flyctl deploy --image ${{ needs.image.outputs.image }}

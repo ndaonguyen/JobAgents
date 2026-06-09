@@ -7,9 +7,18 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel superseded runs on the same ref so rapid pushes don't stack.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: write             # test-reporter publishes a check run with results
     steps:
       - uses: actions/checkout@v4
 
@@ -34,5 +43,16 @@ jobs:
         run: dotnet build JobAgents.sln --configuration Release --no-restore
 
       # `dotnet test` only runs projects marked IsTestProject — the Evals console app is skipped.
+      # TRX logger writes machine-readable results for the reporter step below.
       - name: Test
-        run: dotnet test JobAgents.sln --configuration Release --no-build --verbosity normal
+        run: dotnet test JobAgents.sln --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+
+      # Publish a check run with per-test pass/fail — visible in the PR without digging through logs.
+      # Runs even when tests fail so failures surface in the UI.
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: ${{ !cancelled() }}
+        with:
+          name: Tests
+          path: TestResults/**/*.trx
+          reporter: dotnet-trx
