@@ -31,7 +31,11 @@ public class JobHuntFormTests : PageTest
     [Fact]
     public async Task FindJobs_enables_after_typing_resume()
     {
-        await Page.GotoAsync(BaseUrl);
+        // Blazor Server only becomes interactive once its SignalR circuit (a WebSocket)
+        // connects, which happens AFTER the initial prerender loads. Wait for that
+        // WebSocket during navigation — otherwise Fill/Blur run against the static
+        // prerender, the @bind handler isn't wired yet, and the value never commits.
+        await Page.RunAndWaitForWebSocketAsync(() => Page.GotoAsync(BaseUrl));
 
         // Act: type into the textarea. FillAsync clears + sets the value.
         await ResumeBox.FillAsync("Senior C# engineer, 6 years .NET, AWS, Kafka.");
