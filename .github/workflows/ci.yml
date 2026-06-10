@@ -43,9 +43,10 @@ jobs:
         run: dotnet build JobAgents.sln --configuration Release --no-restore
 
       # `dotnet test` only runs projects marked IsTestProject — the Evals console app is skipped.
+      # E2E tests need a running server + browser, so they run in the dedicated `e2e` job below.
       # TRX logger writes machine-readable results for the reporter step below.
       - name: Test
-        run: dotnet test JobAgents.sln --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
+        run: dotnet test JobAgents.sln --configuration Release --no-build --verbosity normal --filter "FullyQualifiedName!~JobAgents.E2E" --logger "trx;LogFileName=test-results.trx" --results-directory TestResults
 
       # Publish a check run with per-test pass/fail — visible in the PR without digging through logs.
       # Runs even when tests fail so failures surface in the UI.
@@ -54,5 +55,74 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: Tests
+          path: TestResults/**/*.trx
+          reporter: dotnet-trx
+
+  # Browser end-to-end tests: boot the real web app (no API keys needed — the no-key
+  # tests only exercise navigation/form UI, never the LLM agents) and drive it with Playwright.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore JobAgents.sln
+
+      - name: Build
+        run: dotnet build JobAgents.sln --configuration Release --no-restore
+
+      # playwright.ps1 ships in the test project's build output; --with-deps installs the OS
+      # libraries Chromium needs on the runner.
+      - name: Install Playwright browsers
+        run: pwsh tests/JobAgents.E2E/bin/Release/net9.0/playwright.ps1 install --with-deps chromium
+
+      # Start the app on a fixed http port in the background. No HTTPS endpoint, so
+      # UseHttpsRedirection is a no-op (it just logs a warning).
+      - name: Start web app
+        env:
+          ASPNETCORE_URLS: http://localhost:5221
+          ASPNETCORE_ENVIRONMENT: Development
+        run: |
+          dotnet run --project src/JobAgents.Web -c Release --no-build --no-launch-profile > web.log 2>&1 &
+          echo "WEB_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for app to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:5221 >/dev/null 2>&1; then echo "app is up"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::web app did not start within 60s"; cat web.log; exit 1
+
+      - name: E2E tests
+        env:
+          E2E_BASE_URL: http://localhost:5221
+        run: dotnet test tests/JobAgents.E2E/JobAgents.E2E.csproj -c Release --no-build --logger "trx;LogFileName=e2e-results.trx" --results-directory TestResults
+
+      - name: Stop web app
+        if: always()
+        run: kill "$WEB_PID" 2>/dev/null || true
+
+      - name: Publish E2E results
+        uses: dorny/test-reporter@v1
+        if: ${{ !cancelled() }}
+        with:
+          name: E2E Tests
           path: TestResults/**/*.trx
           reporter: dotnet-trx
