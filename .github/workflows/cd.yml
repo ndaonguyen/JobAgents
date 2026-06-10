@@ -32,8 +32,10 @@ jobs:
         with:
           global-json-file: global.json
 
+      # Gate on unit/integration tests. E2E is excluded here — it needs a live server + browser
+      # (booted in CI's dedicated e2e job on PRs); running it in CD without a server always fails.
       - name: Test
-        run: dotnet test JobAgents.sln --configuration Release --verbosity normal
+        run: dotnet test JobAgents.sln --configuration Release --verbosity normal --filter "FullyQualifiedName!~JobAgents.E2E"
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
