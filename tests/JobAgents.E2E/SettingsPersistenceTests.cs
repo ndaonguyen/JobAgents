@@ -54,13 +54,17 @@ public class SettingsPersistenceTests : E2ETestBase
         await Page.GotoAsync(SettingsUrl);
         await Expect(ParallelSwitch).ToBeVisibleAsync();
 
-        // Gate on circuit liveness with an idempotent write first, so the toggle click below
-        // is guaranteed to hit a live handler (avoids double-toggle parity bugs from dead clicks).
+        // Gate on circuit liveness before the toggle click below, so it's guaranteed to hit a live
+        // handler (avoids double-toggle parity bugs from dead clicks). Filling the SAME value is a
+        // no-op that fires no "change" event, so flip between two values each attempt: the DOM value
+        // always changes, which means the first fill after the circuit goes live always commits and
+        // raises the SavePill.
         await RetryUntilAsync(
             act: async () =>
             {
-                await ResumeLimit.FillAsync("0");
-                await ResumeLimit.BlurAsync();
+                var current = (await ResumeLimit.InputValueAsync()).Trim();
+                await ResumeLimit.FillAsync(current == "100" ? "200" : "100");
+                await ResumeLimit.BlurAsync(); // fires "change" → @onchange → SaveAsync
             },
             verify: () => Expect(SavePill).ToBeVisibleAsync(new() { Timeout = 2000 }));
 
