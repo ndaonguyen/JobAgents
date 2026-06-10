@@ -16,7 +16,15 @@ builder.Services
     .AddInfrastructure(builder.Configuration);
 
 // Run persistence + Past Runs reader, and the reusable saved-CV store.
-var resultsDir = Path.Combine(builder.Environment.ContentRootPath, "results");
+// Stored OUTSIDE the repo so it survives `git clean -dfx`, rebuilds, and branch switches, and so every
+// launch method shares one store. Previously rooted at ContentRootPath/results, which split data between
+// `dotnet run` (project dir) and a built-dll launch (bin/.../results) and was wiped by clean. Override with
+// the ResultsDirectory config key (env: ResultsDirectory) for tests/CI isolation.
+var resultsDir = builder.Configuration["ResultsDirectory"] is { Length: > 0 } configured
+    ? configured
+    : Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "JobAgents", "results");
 builder.Services.AddSingleton(_ => new RunStore(resultsDir));
 builder.Services.AddSingleton(_ => new JobAgents.Infrastructure.Feedback.FeedbackStore(resultsDir));
 builder.Services.AddSingleton(_ => new ProfileStore(resultsDir));
