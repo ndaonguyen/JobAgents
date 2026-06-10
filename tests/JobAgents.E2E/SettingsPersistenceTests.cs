@@ -11,8 +11,9 @@ public class SettingsPersistenceTests : E2ETestBase
     private string SettingsUrl => $"{BaseUrl}/settings";
 
     // The "Saved ✓" pill only renders after an interactive @onchange handler runs, so it
-    // doubles as proof the circuit is live and the write actually happened.
-    private ILocator SavePill => Page.GetByText("Saved", new() { Exact = false });
+    // doubles as proof the circuit is live and the write actually happened. Scope to the
+    // pill's class so it doesn't collide with the page's "Saved automatically…" subtitle.
+    private ILocator SavePill => Page.Locator(".save-pill");
 
     private ILocator ResumeLimit => Page.Locator("#lim-resume");
     private ILocator ParallelSwitch => Page.Locator("#parallel-search");
