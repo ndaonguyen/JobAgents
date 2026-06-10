@@ -88,6 +88,23 @@ Deterministic agent behaviour is covered here too — e.g. posting **dedupe**, a
 **company / salary research dedup** (two top matches at the same employer, or the same
 role+location+seniority, trigger one research call, not two).
 
+**End-to-end** (`tests/JobAgents.E2E`, Playwright) drives the real Blazor UI — form state, settings
+persistence, CV save/forget. It needs a running app, so it's excluded from `dotnet test` by default:
+
+```bash
+dotnet run --project src/JobAgents.Web   # terminal 1 (http://localhost:5221)
+dotnet test tests/JobAgents.E2E          # terminal 2
+```
+
+## CI / CD
+
+- **CI** (`.github/workflows/ci.yml`) — build, unit/integration tests, and a dedicated **E2E** job that
+  boots the app and runs Playwright. A **SonarCloud** scan publishes coverage and gates on
+  **≥ 80 % coverage of new code** ("clean as you code") via the *SonarCloud Code Analysis* check,
+  required on `main` through branch protection.
+- **CD** (`.github/workflows/cd.yml`) — on push to `main`, runs the test gate, builds a container image,
+  pushes it to GHCR, and (if `FLY_API_TOKEN` is set) deploys to Fly.io by SHA, so *tested == deployed*.
+
 ## Evaluations
 
 LLM behaviour can't be pinned by ordinary unit tests, so the `eval/JobAgents.Evals` console project
