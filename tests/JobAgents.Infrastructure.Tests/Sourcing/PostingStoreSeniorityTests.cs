@@ -30,7 +30,7 @@ public sealed class PostingStoreSeniorityTests : IDisposable
             Posting("Principal Backend Engineer"),
         });
 
-        var result = store.Query(Criteria("Lead"), postedWithin: null, max: 10);
+        var result = await store.QueryAsync(Criteria("Lead"), postedWithin: null, max: 10);
 
         // Senior is below the Lead floor; Staff (Lead) and Principal are at/above it.
         result.Select(p => p.Title).Should().BeEquivalentTo("Staff Backend Engineer", "Principal Backend Engineer");
@@ -43,7 +43,7 @@ public sealed class PostingStoreSeniorityTests : IDisposable
         await store.SaveAsync(new[] { Posting("Backend Engineer") }); // no level word in title
 
         // Unknown posting level is treated leniently — still served.
-        store.Query(Criteria("Lead"), postedWithin: null, max: 10).Should().ContainSingle();
+        (await store.QueryAsync(Criteria("Lead"), postedWithin: null, max: 10)).Should().ContainSingle();
     }
 
     public void Dispose()

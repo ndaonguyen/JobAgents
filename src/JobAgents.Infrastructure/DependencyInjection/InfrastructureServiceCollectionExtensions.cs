@@ -32,7 +32,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton<IKernelFactory, KernelFactory>();
         services.AddSingleton<IUsageCalculator, ModelPricingCalculator>();
         services.AddSingleton<IWorkingMemory, NullWorkingMemory>();
-        // Default to a no-op posting store; the web app overrides this with a file-backed one (below)
+        // Semantic-retrieval embeddings (disabled at runtime when no OpenAI key is set).
+        services.AddSingleton<IEmbeddingService, Sourcing.OpenAiEmbeddingService>();
+        // Default to a no-op posting store; the web app overrides this with a file-backed one
         // pointed at its results directory.
         services.AddSingleton<Sourcing.IPostingStore, Sourcing.NullPostingStore>();
 

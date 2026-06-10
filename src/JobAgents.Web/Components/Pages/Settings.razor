@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using JobAgents.Application.Abstractions
 @inject ModelConfigStore Models
+@inject RunStore Runs
 
 <PageTitle>Settings · JobAgents</PageTitle>
 
@@ -28,6 +29,28 @@
                     Parallel search
                     <span class="text-muted d-block small">On: research 2 matches at once. Off: one by one (slower, fewer concurrent web searches).</span>
                 </label>
+            </div>
+        </div>
+    </section>
+
+    <section class="card section-card mb-4">
+        <div class="card-header section-header">Maximum results</div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Target postings to source and match per hunt. More results means more matcher calls, so cost
+                rises with the number. Estimates are @(_estimateFromHistory ? "based on your recent runs" : "rough — no run history yet").
+            </p>
+            <div class="maxresults-list" role="radiogroup" aria-label="Maximum results">
+                @foreach (var n in RunCostEstimator.MaxResultsOptions)
+                {
+                    var (cost, _) = RunCostEstimator.Estimate(n, _perResult);
+                    var selected = _config.MaxResults == n;
+                    <button type="button" class="btn maxresults-option @(selected ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => OnMaxResultsChangedAsync(n)">
+                        <span class="maxresults-count">@n</span>
+                        <span class="maxresults-cost small">~$@cost.ToString("0.00")/run</span>
+                    </button>
+                }
             </div>
         </div>
     </section>
@@ -157,10 +180,25 @@
     private AgentModelConfig _config = new();
     private string _status = "";
 
+    // Learned per-result cost rate for the estimates (null ⇒ no history, fall back to a rough constant).
+    private decimal? _perResult;
+    private bool _estimateFromHistory;
+
     private SearchDepthSettings Depth => _config.SearchDepth ?? SearchDepthSettings.Default;
 
-    protected override async Task OnInitializedAsync() =>
+    protected override async Task OnInitializedAsync()
+    {
         _config = await Models.LoadAsync() ?? new AgentModelConfig();
+        _perResult = RunCostEstimator.PerResultFromHistory(await Runs.LoadAllAsync());
+        _estimateFromHistory = _perResult is not null;
+    }
+
+    private async Task OnMaxResultsChangedAsync(int maxResults)
+    {
+        _config = _config with { MaxResults = maxResults };
+        await Models.SaveAsync(_config);
+        _status = "Saved ✓";
+    }
 
     private async Task OnChangedAsync(AgentSlot slot, ChangeEventArgs e)
     {

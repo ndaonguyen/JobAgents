@@ -1053,16 +1053,16 @@
         }
 
         var domains = SelectedDomains();
+        // Per-agent model overrides + result cap chosen in Settings (null fields fall back to the app default).
+        var models = await ModelConfig.LoadAsync() ?? new AgentModelConfig();
         // "Search harder" escalates the budget each click: more searches AND a higher result target.
         var maxSearches = _searchEffort + 4 * _searchBoost;
-        var baseResults = JobHuntConfig.Default.MaxResults + 6 * _searchBoost;
+        var baseResults = models.MaxResults + 6 * _searchBoost;
         // Give each selected site room to contribute: scale the target up with the number of sources.
         var maxResults = domains.Count > 1
             ? Math.Min(30, baseResults + 3 * (domains.Count - 1))
             : baseResults;
         _lastMinScore = _minMatchScore;
-        // Per-agent model overrides chosen in the sidebar (null fields fall back to the app default).
-        var models = await ModelConfig.LoadAsync() ?? new AgentModelConfig();
         var config = JobHuntConfig.Default with
         {
             CoordinatorModel = models.CoordinatorModel,

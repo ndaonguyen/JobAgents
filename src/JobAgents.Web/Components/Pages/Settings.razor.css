@@ -31,6 +31,31 @@
     font-weight: 600;
 }
 
+/* Maximum-results option buttons (count over an estimated per-run cost). */
+.maxresults-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.maxresults-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 5.5rem;
+    padding: 0.55rem 0.9rem;
+    line-height: 1.2;
+}
+
+.maxresults-count {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.maxresults-cost {
+    opacity: 0.85;
+}
+
 /* Depth toggle rows. */
 .depth-list {
     display: flex;
