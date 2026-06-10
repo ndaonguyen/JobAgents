@@ -31,21 +31,35 @@ public class JobHuntFormTests : PageTest
     [Fact]
     public async Task FindJobs_enables_after_typing_resume()
     {
-        // Blazor Server only becomes interactive once its SignalR circuit (a WebSocket)
-        // connects, which happens AFTER the initial prerender loads. Wait for that
-        // WebSocket during navigation — otherwise Fill/Blur run against the static
-        // prerender, the @bind handler isn't wired yet, and the value never commits.
-        await Page.RunAndWaitForWebSocketAsync(() => Page.GotoAsync(BaseUrl));
+        await Page.GotoAsync(BaseUrl);
+        await Expect(ResumeBox).ToBeVisibleAsync();
 
-        // Act: type into the textarea. FillAsync clears + sets the value.
-        await ResumeBox.FillAsync("Senior C# engineer, 6 years .NET, AWS, Kafka.");
+        // Blazor Server interactivity arrives asynchronously: the page prerenders as
+        // static HTML, then the SignalR circuit connects and wires up @bind. Until then,
+        // Fill+Blur run against dead HTML and the bound value (committed on the "change"
+        // event, i.e. blur) is silently dropped — a single attempt is racy on slow CI.
+        // Retry the fill+blur until the circuit is live and the button flips to enabled.
+        await FillResumeUntilEnabledAsync("Senior C# engineer, 6 years .NET, AWS, Kafka.");
+    }
 
-        // Blazor's @bind commits on the DOM "change" event, which only fires on
-        // blur — FillAsync alone fires "input". Blur to commit so _resume updates.
-        await ResumeBox.BlurAsync();
+    private async Task FillResumeUntilEnabledAsync(string text)
+    {
+        const int maxAttempts = 10;
+        for (var attempt = 1; ; attempt++)
+        {
+            await ResumeBox.FillAsync(text);   // sets value, fires "input"
+            await ResumeBox.BlurAsync();       // fires "change" so Blazor @bind commits
 
-        // State round-trips over SignalR, so the button flips to enabled.
-        // Expect(...) auto-waits for that to happen.
-        await Expect(FindJobsButton).ToBeEnabledAsync();
+            try
+            {
+                await Expect(FindJobsButton).ToBeEnabledAsync(new() { Timeout = 2000 });
+                return;
+            }
+            catch (PlaywrightException) when (attempt < maxAttempts)
+            {
+                // Circuit not interactive yet — wait briefly, then re-type.
+                await Page.WaitForTimeoutAsync(500);
+            }
+        }
     }
 }
