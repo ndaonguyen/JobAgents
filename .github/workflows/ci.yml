@@ -58,8 +58,10 @@ jobs:
           path: TestResults/**/*.trx
           reporter: dotnet-trx
 
-  # SonarCloud static analysis + coverage. Gate: "Coverage on New Code >= 80%" (set in the
-  # SonarCloud quality gate). sonar.qualitygate.wait=true makes this job fail when the gate is red.
+  # SonarCloud static analysis + coverage. The 80%-on-new-code quality gate is enforced by
+  # SonarCloud's own "SonarCloud Code Analysis" GitHub check (require it in branch protection),
+  # not by this job — the scanner's qualitygate.wait call is unreliable against api.sonarcloud.io.
+  # This job just runs the scan and uploads coverage.
   sonar:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -119,7 +121,6 @@ jobs:
             /d:sonar.host.url="https://sonarcloud.io" \
             /d:sonar.token="$SONAR_TOKEN" \
             /d:sonar.cs.vscoveragexml.reportsPaths="coverage.xml" \
-            /d:sonar.qualitygate.wait=true \
             /d:sonar.coverage.exclusions="**/Program.cs,**/Components/**/*.razor,**/Components/**/*.razor.cs,eval/**,**/*.g.cs" \
             /d:sonar.exclusions="eval/**,**/*.g.cs"
           dotnet build JobAgents.sln --configuration Release --no-restore
