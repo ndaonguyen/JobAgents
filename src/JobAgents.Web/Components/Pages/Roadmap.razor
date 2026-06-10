@@ -8,11 +8,12 @@
     <div>
         <h1 class="mb-0">Roadmap</h1>
         <p class="text-muted mb-0">
-            Future improvements for engineers to pick up. Capture an idea with a title and description.
+            Future improvements for engineers to pick up. Capture a story with a title, description and
+            acceptance criteria, then break it into sub-tasks.
         </p>
     </div>
     <button class="btn btn-primary" @onclick="ToggleAdd">
-        <span class="me-1">@(_adding ? "✕" : "➕")</span> @(_adding ? "Close" : "New idea")
+        <span class="me-1">@(_adding ? "✕" : "➕")</span> @(_adding ? "Close" : "New story")
     </button>
 </div>
 
@@ -23,15 +24,20 @@
             <div class="mb-2">
                 <label class="form-label fw-semibold">Title</label>
                 <input class="form-control" @bind="_newTitle" @bind:event="oninput"
-                       placeholder="Short summary of the improvement" />
+                       placeholder="Short summary of the story" />
             </div>
             <div class="mb-2">
                 <label class="form-label fw-semibold">Description</label>
-                <textarea class="form-control" rows="5" @bind="_newDescription"
-                          placeholder="What should be built and why — context, acceptance criteria, links, affected files…"></textarea>
+                <textarea class="form-control" rows="4" @bind="_newDescription"
+                          placeholder="What should be built and why — context, links, affected files…"></textarea>
+            </div>
+            <div class="mb-2">
+                <label class="form-label fw-semibold">Acceptance criteria</label>
+                <textarea class="form-control" rows="3" @bind="_newCriteria"
+                          placeholder="Definition of done — one criterion per line"></textarea>
             </div>
             <button class="btn btn-primary" @onclick="AddAsync" disabled="@string.IsNullOrWhiteSpace(_newTitle)">
-                Save idea
+                Save story
             </button>
             <button type="button" class="btn btn-link" @onclick="CancelAdd">Cancel</button>
         </div>
@@ -41,7 +47,7 @@
 @if (_ideas.Count == 0)
 {
     <div class="alert alert-light border mt-3">
-        No ideas yet. Click <strong>New idea</strong> to add the first one.
+        No stories yet. Click <strong>New story</strong> to add the first one.
     </div>
 }
 else
@@ -59,7 +65,11 @@ else
                         </div>
                         <div class="mb-2">
                             <label class="form-label fw-semibold">Description</label>
-                            <textarea class="form-control" rows="5" @bind="_editDescription"></textarea>
+                            <textarea class="form-control" rows="4" @bind="_editDescription"></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold">Acceptance criteria</label>
+                            <textarea class="form-control" rows="3" @bind="_editCriteria"></textarea>
                         </div>
                         <button class="btn btn-primary btn-sm" @onclick="SaveEditAsync"
                                 disabled="@string.IsNullOrWhiteSpace(_editTitle)">Save</button>
@@ -70,6 +80,12 @@ else
                         <div class="d-flex align-items-start justify-content-between gap-2">
                             <h5 class="mb-1">@idea.Title</h5>
                             <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                                @if (idea.SubTasks.Count > 0)
+                                {
+                                    <span class="badge bg-light text-dark border">
+                                        @idea.SubTasks.Count(s => s.Done)/@idea.SubTasks.Count tasks
+                                    </span>
+                                }
                                 <span class="badge @StatusClass(idea.Status)">@idea.Status</span>
                                 <select class="form-select form-select-sm" style="width:auto"
                                         @onchange="e => UpdateStatusAsync(idea.Id, e.Value?.ToString())">
@@ -88,7 +104,50 @@ else
                         {
                             <p class="mb-1" style="white-space: pre-wrap;">@idea.Description</p>
                         }
-                        <div class="small text-muted">Added @idea.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</div>
+                        @if (!string.IsNullOrWhiteSpace(idea.Criteria))
+                        {
+                            <div class="mb-2">
+                                <div class="small fw-semibold text-muted text-uppercase">Acceptance criteria</div>
+                                <p class="mb-0" style="white-space: pre-wrap;">@idea.Criteria</p>
+                            </div>
+                        }
+
+                        <div class="border-top pt-2 mt-2">
+                            <div class="small fw-semibold text-muted text-uppercase mb-1">Sub-tasks</div>
+                            @if (idea.SubTasks.Count == 0)
+                            {
+                                <div class="small text-muted mb-1">No sub-tasks yet.</div>
+                            }
+                            else
+                            {
+                                <ul class="list-unstyled mb-1">
+                                    @foreach (var task in idea.SubTasks)
+                                    {
+                                        <li class="d-flex align-items-center gap-2">
+                                            <input class="form-check-input mt-0" type="checkbox" checked="@task.Done"
+                                                   @onchange="() => ToggleSubTaskAsync(idea.Id, task.Id)" />
+                                            <span class="@(task.Done ? "text-muted text-decoration-line-through" : "")">
+                                                @task.Title
+                                            </span>
+                                            <button class="btn btn-sm btn-link text-danger p-0 ms-auto" title="Delete sub-task"
+                                                    @onclick="() => DeleteSubTaskAsync(idea.Id, task.Id)">🗑</button>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            <div class="d-flex gap-2 mt-1">
+                                <input class="form-control form-control-sm" style="max-width:24rem"
+                                       placeholder="Add a sub-task…"
+                                       value="@SubTaskDraft(idea.Id)"
+                                       @oninput="e => SetSubTaskDraft(idea.Id, e.Value?.ToString())"
+                                       @onkeydown="e => OnSubTaskKeyDown(e, idea.Id)" />
+                                <button class="btn btn-sm btn-outline-primary"
+                                        disabled="@string.IsNullOrWhiteSpace(SubTaskDraft(idea.Id))"
+                                        @onclick="() => AddSubTaskAsync(idea.Id)">Add</button>
+                            </div>
+                        </div>
+
+                        <div class="small text-muted mt-2">Added @idea.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</div>
                     }
                 </div>
             </div>
@@ -101,10 +160,14 @@ else
     private bool _adding;
     private string _newTitle = string.Empty;
     private string _newDescription = string.Empty;
+    private string _newCriteria = string.Empty;
 
     private string? _editingId;
     private string _editTitle = string.Empty;
     private string _editDescription = string.Empty;
+    private string _editCriteria = string.Empty;
+
+    private readonly Dictionary<string, string> _subTaskDrafts = new();
 
     protected override async Task OnInitializedAsync() => _ideas = await Ideas.LoadAllAsync();
 
@@ -120,7 +183,7 @@ else
         if (string.IsNullOrWhiteSpace(_newTitle))
             return;
 
-        await Ideas.AddAsync(_newTitle, _newDescription);
+        await Ideas.AddAsync(_newTitle, _newDescription, _newCriteria);
         ClearForm();
         _adding = false;
         _ideas = await Ideas.LoadAllAsync();
@@ -136,6 +199,7 @@ else
     {
         _newTitle = string.Empty;
         _newDescription = string.Empty;
+        _newCriteria = string.Empty;
     }
 
     private void BeginEdit(ImprovementIdea idea)
@@ -143,6 +207,7 @@ else
         _editingId = idea.Id;
         _editTitle = idea.Title;
         _editDescription = idea.Description;
+        _editCriteria = idea.Criteria;
     }
 
     private void CancelEdit()
@@ -150,6 +215,7 @@ else
         _editingId = null;
         _editTitle = string.Empty;
         _editDescription = string.Empty;
+        _editCriteria = string.Empty;
     }
 
     private async Task SaveEditAsync()
@@ -157,7 +223,7 @@ else
         if (_editingId is null || string.IsNullOrWhiteSpace(_editTitle))
             return;
 
-        await Ideas.UpdateAsync(_editingId, _editTitle, _editDescription);
+        await Ideas.UpdateAsync(_editingId, _editTitle, _editDescription, _editCriteria);
         CancelEdit();
         _ideas = await Ideas.LoadAllAsync();
     }
@@ -174,6 +240,41 @@ else
     private async Task DeleteAsync(string id)
     {
         await Ideas.DeleteAsync(id);
+        _ideas = await Ideas.LoadAllAsync();
+    }
+
+    private string SubTaskDraft(string ideaId) =>
+        _subTaskDrafts.TryGetValue(ideaId, out var v) ? v : string.Empty;
+
+    private void SetSubTaskDraft(string ideaId, string? value) =>
+        _subTaskDrafts[ideaId] = value ?? string.Empty;
+
+    private async Task OnSubTaskKeyDown(KeyboardEventArgs e, string ideaId)
+    {
+        if (e.Key == "Enter")
+            await AddSubTaskAsync(ideaId);
+    }
+
+    private async Task AddSubTaskAsync(string ideaId)
+    {
+        var title = SubTaskDraft(ideaId);
+        if (string.IsNullOrWhiteSpace(title))
+            return;
+
+        await Ideas.AddSubTaskAsync(ideaId, title);
+        _subTaskDrafts[ideaId] = string.Empty;
+        _ideas = await Ideas.LoadAllAsync();
+    }
+
+    private async Task ToggleSubTaskAsync(string ideaId, string subTaskId)
+    {
+        await Ideas.ToggleSubTaskAsync(ideaId, subTaskId);
+        _ideas = await Ideas.LoadAllAsync();
+    }
+
+    private async Task DeleteSubTaskAsync(string ideaId, string subTaskId)
+    {
+        await Ideas.DeleteSubTaskAsync(ideaId, subTaskId);
         _ideas = await Ideas.LoadAllAsync();
     }
 
