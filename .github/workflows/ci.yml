@@ -58,6 +58,76 @@ jobs:
           path: TestResults/**/*.trx
           reporter: dotnet-trx
 
+  # SonarCloud static analysis + coverage. Gate: "Coverage on New Code >= 80%" (set in the
+  # SonarCloud quality gate). sonar.qualitygate.wait=true makes this job fail when the gate is red.
+  sonar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      SONAR_ORG: ndaonguyen                # SonarCloud organization key — confirm/edit
+      SONAR_PROJECT_KEY: ndaonguyen_JobAgents  # SonarCloud project key — confirm/edit
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Sonar needs full history for accurate blame / new-code detection.
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      # The Sonar scanner for .NET runs on the JVM.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Cache SonarCloud scanner
+        uses: actions/cache@v5
+        with:
+          path: ~/.dotnet/tools
+          key: sonar-tools-${{ runner.os }}
+
+      - name: Install Sonar + coverage tools
+        run: |
+          dotnet tool install --global dotnet-sonarscanner || dotnet tool update --global dotnet-sonarscanner
+          dotnet tool install --global dotnet-coverage || dotnet tool update --global dotnet-coverage
+
+      - name: Restore
+        run: dotnet restore JobAgents.sln
+
+      # The scanner hooks MSBuild, so begin -> build -> test(+coverage) -> end must run in order.
+      # E2E is excluded (needs a live server + browser; it runs in the dedicated e2e job).
+      - name: SonarCloud analyze
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          dotnet sonarscanner begin \
+            /k:"$SONAR_PROJECT_KEY" \
+            /o:"$SONAR_ORG" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.cs.vscoveragexml.reportsPaths="coverage.xml" \
+            /d:sonar.qualitygate.wait=true \
+            /d:sonar.coverage.exclusions="**/Program.cs,**/Components/**/*.razor,**/Components/**/*.razor.cs,eval/**,**/*.g.cs" \
+            /d:sonar.exclusions="eval/**,**/*.g.cs"
+          dotnet build JobAgents.sln --configuration Release --no-restore
+          dotnet-coverage collect \
+            "dotnet test JobAgents.sln --configuration Release --no-build --filter FullyQualifiedName!~JobAgents.E2E" \
+            -f xml -o coverage.xml
+          dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
   # Browser end-to-end tests: boot the real web app (no API keys needed — the no-key
   # tests only exercise navigation/form UI, never the LLM agents) and drive it with Playwright.
   e2e:
