@@ -47,7 +47,7 @@ public sealed class Coordinator(
         // 2. Source postings: first REUSE fresh, criteria-matching rows from the corpus (no Tavily),
         // then top up with a live search only for the remaining gap. Newly-found postings are saved
         // back so future runs can reuse them.
-        var cached = postingStore.Query(criteria, config.TimeRange, config.MaxResults);
+        var cached = await postingStore.QueryAsync(criteria, config.TimeRange, config.MaxResults, ct);
         IReadOnlyList<JobPosting> fresh = Array.Empty<JobPosting>();
         if (cached.Count < config.MaxResults)
         {

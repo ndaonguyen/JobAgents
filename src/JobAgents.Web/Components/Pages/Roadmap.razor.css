@@ -1,0 +1,88 @@
+.story-card {
+    border: 1px solid var(--bs-border-color);
+    border-left-width: 4px;
+    border-left-color: var(--bs-secondary);
+    transition: box-shadow .15s ease, transform .15s ease;
+}
+
+.story-card:hover {
+    box-shadow: 0 .25rem .75rem rgba(0, 0, 0, .08);
+}
+
+.story-card.status-done {
+    border-left-color: var(--bs-success);
+}
+
+.story-card.status-in-progress {
+    border-left-color: var(--bs-primary);
+}
+
+.story-card.status-planned {
+    border-left-color: var(--bs-info);
+}
+
+.story-card.status-proposed {
+    border-left-color: var(--bs-secondary);
+}
+
+.story-title {
+    font-weight: 600;
+    letter-spacing: -.01em;
+}
+
+.section-label {
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--bs-secondary-color);
+}
+
+.criteria-box {
+    background: var(--bs-light);
+    border-radius: .5rem;
+    padding: .5rem .75rem;
+    white-space: pre-wrap;
+}
+
+.subtask-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.subtask-row {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .25rem .25rem;
+    border-radius: .375rem;
+}
+
+.subtask-row:hover {
+    background: var(--bs-light);
+}
+
+.subtask-row .subtask-del {
+    opacity: 0;
+    transition: opacity .1s ease;
+}
+
+.subtask-row:hover .subtask-del {
+    opacity: 1;
+}
+
+.subtask-done {
+    color: var(--bs-secondary-color);
+    text-decoration: line-through;
+}
+
+.progress-thin {
+    height: .4rem;
+    border-radius: 1rem;
+}
+
+.filter-pill {
+    cursor: pointer;
+    user-select: none;
+}

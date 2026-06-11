@@ -15,6 +15,9 @@ public sealed class OpenAiOptions
 {
     public string ApiKey { get; set; } = string.Empty;
     public string Model { get; set; } = "gpt-4o-mini";
+
+    /// <summary>Embedding model for semantic posting retrieval. Cheap + 1536-dim; same key as <see cref="ApiKey"/>.</summary>
+    public string EmbeddingModel { get; set; } = "text-embedding-3-small";
 }
 
 /// <summary>

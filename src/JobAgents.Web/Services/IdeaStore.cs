@@ -2,13 +2,29 @@ using System.Text.Json;
 
 namespace JobAgents.Web.Services;
 
-/// <summary>A single improvement idea / future-work item for engineers to pick up and build.</summary>
+/// <summary>A single actionable sub-task that belongs to an <see cref="ImprovementIdea"/> (story).</summary>
+public sealed record SubTask(
+    string Id,
+    string Title,
+    bool Done);
+
+/// <summary>
+/// A single improvement idea / future-work item (a "story") for engineers to pick up and build.
+/// May be broken down into <see cref="SubTasks"/>.
+/// </summary>
 public sealed record ImprovementIdea(
     string Id,
     string Title,
     string Description,
     string Status,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc)
+{
+    /// <summary>Acceptance criteria / definition of done for the story. Empty for legacy items.</summary>
+    public string Criteria { get; init; } = string.Empty;
+
+    /// <summary>Sub-tasks this story is broken down into. Empty for legacy items.</summary>
+    public IReadOnlyList<SubTask> SubTasks { get; init; } = [];
+}
 
 /// <summary>
 /// File-backed backlog of improvement ideas, stored as <c>results/ideas.json</c>. Lets the team
@@ -40,20 +56,48 @@ public sealed class IdeaStore(string directory)
         }
     }
 
-    public async Task<ImprovementIdea> AddAsync(string title, string description, CancellationToken ct = default)
+    public async Task<ImprovementIdea> AddAsync(
+        string title, string description, string criteria = "", CancellationToken ct = default)
     {
         var idea = new ImprovementIdea(
-            Guid.NewGuid().ToString("N"), title.Trim(), description.Trim(), Statuses[0], DateTime.UtcNow);
+            Guid.NewGuid().ToString("N"), title.Trim(), description.Trim(), Statuses[0], DateTime.UtcNow)
+        {
+            Criteria = criteria.Trim(),
+        };
         await MutateAsync(list => list.Insert(0, idea), ct);
         return idea;
     }
 
-    public Task UpdateAsync(string id, string title, string description, CancellationToken ct = default) =>
+    public Task UpdateAsync(
+        string id, string title, string description, string criteria = "", CancellationToken ct = default) =>
         MutateAsync(list =>
         {
             var i = list.FindIndex(x => x.Id == id);
             if (i >= 0)
-                list[i] = list[i] with { Title = title.Trim(), Description = description.Trim() };
+                list[i] = list[i] with
+                {
+                    Title = title.Trim(),
+                    Description = description.Trim(),
+                    Criteria = criteria.Trim(),
+                };
+        }, ct);
+
+    public Task AddSubTaskAsync(string ideaId, string title, CancellationToken ct = default) =>
+        MutateIdeaAsync(ideaId, idea => idea with
+        {
+            SubTasks = [.. idea.SubTasks, new SubTask(Guid.NewGuid().ToString("N"), title.Trim(), false)],
+        }, ct);
+
+    public Task ToggleSubTaskAsync(string ideaId, string subTaskId, CancellationToken ct = default) =>
+        MutateIdeaAsync(ideaId, idea => idea with
+        {
+            SubTasks = [.. idea.SubTasks.Select(s => s.Id == subTaskId ? s with { Done = !s.Done } : s)],
+        }, ct);
+
+    public Task DeleteSubTaskAsync(string ideaId, string subTaskId, CancellationToken ct = default) =>
+        MutateIdeaAsync(ideaId, idea => idea with
+        {
+            SubTasks = [.. idea.SubTasks.Where(s => s.Id != subTaskId)],
         }, ct);
 
     public Task UpdateStatusAsync(string id, string status, CancellationToken ct = default) =>
@@ -66,6 +110,14 @@ public sealed class IdeaStore(string directory)
 
     public Task DeleteAsync(string id, CancellationToken ct = default) =>
         MutateAsync(list => list.RemoveAll(x => x.Id == id), ct);
+
+    private Task MutateIdeaAsync(string id, Func<ImprovementIdea, ImprovementIdea> transform, CancellationToken ct) =>
+        MutateAsync(list =>
+        {
+            var i = list.FindIndex(x => x.Id == id);
+            if (i >= 0)
+                list[i] = transform(list[i]);
+        }, ct);
 
     private async Task MutateAsync(Action<List<ImprovementIdea>> mutate, CancellationToken ct)
     {

@@ -32,8 +32,10 @@ builder.Services.AddSingleton(_ => new ModelConfigStore(resultsDir));
 builder.Services.AddSingleton(_ => new IdeaStore(resultsDir));
 
 // Retrieve-before-fetch posting corpus (cuts Tavily calls + grows the result pool across runs).
+// Semantic retrieval when an embedding provider is configured; keyword fallback otherwise.
 builder.Services.AddSingleton<JobAgents.Infrastructure.Sourcing.IPostingStore>(
-    _ => new JobAgents.Infrastructure.Sourcing.FilePostingStore(resultsDir));
+    sp => new JobAgents.Infrastructure.Sourcing.FilePostingStore(
+        resultsDir, sp.GetRequiredService<JobAgents.Application.Abstractions.IEmbeddingService>()));
 
 // Disk-backed Tavily response cache (48h TTL): identical queries across runs/restarts replay the same
 // rows with no HTTP call — fewer Tavily requests + credits, identical results. Overrides the memory-only

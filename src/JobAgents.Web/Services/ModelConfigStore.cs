@@ -24,6 +24,9 @@ public sealed record AgentModelConfig(
     int MaxResumeChars = 0,
     int MaxDescriptionChars = 0,
     int MaxSearchResultChars = 400,
+    // Target number of postings to source + match per hunt (the base before "Search harder" / multi-site
+    // scaling). More results = more matcher calls = higher cost. One of MaxResultsOptions.
+    int MaxResults = 12,
     DateTime UpdatedAtUtc = default);
 
 /// <summary>A selectable model: the id passed to the agents, plus a friendly label for the dropdown.</summary>
