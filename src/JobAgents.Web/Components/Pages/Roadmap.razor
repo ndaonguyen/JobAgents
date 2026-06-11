@@ -52,10 +52,34 @@
 }
 else
 {
-    <div class="mt-3">
-        @foreach (var idea in _ideas)
+    <div class="d-flex flex-wrap gap-2 align-items-center mt-3 mb-3">
+        <span class="badge rounded-pill filter-pill @(_filter is null ? "bg-dark" : "bg-light text-dark border")"
+              @onclick="() => SetFilter(null)">
+            All <span class="ms-1 opacity-75">@_ideas.Count</span>
+        </span>
+        @foreach (var s in IdeaStore.Statuses)
         {
-            <div class="card mb-2">
+            var count = _ideas.Count(i => i.Status == s);
+            <span class="badge rounded-pill filter-pill @(_filter == s ? StatusClass(s) : "bg-light text-dark border")"
+                  @onclick="() => SetFilter(s)">
+                @s <span class="ms-1 opacity-75">@count</span>
+            </span>
+        }
+        <input class="form-control form-control-sm ms-auto" style="max-width:18rem"
+               placeholder="Search stories…" @bind="_search" @bind:event="oninput" />
+    </div>
+
+    @if (Filtered().Count == 0)
+    {
+        <div class="alert alert-light border">No stories match the current filter.</div>
+    }
+
+    <div class="mt-1">
+        @foreach (var idea in Filtered())
+        {
+            var done = idea.SubTasks.Count(s => s.Done);
+            var total = idea.SubTasks.Count;
+            <div class="card story-card mb-3 @StatusBorder(idea.Status)">
                 <div class="card-body">
                     @if (_editingId == idea.Id)
                     {
@@ -78,14 +102,8 @@ else
                     else
                     {
                         <div class="d-flex align-items-start justify-content-between gap-2">
-                            <h5 class="mb-1">@idea.Title</h5>
+                            <h5 class="story-title mb-1">@idea.Title</h5>
                             <div class="d-flex align-items-center gap-2 flex-shrink-0">
-                                @if (idea.SubTasks.Count > 0)
-                                {
-                                    <span class="badge bg-light text-dark border">
-                                        @idea.SubTasks.Count(s => s.Done)/@idea.SubTasks.Count tasks
-                                    </span>
-                                }
                                 <span class="badge @StatusClass(idea.Status)">@idea.Status</span>
                                 <select class="form-select form-select-sm" style="width:auto"
                                         @onchange="e => UpdateStatusAsync(idea.Id, e.Value?.ToString())">
@@ -100,42 +118,56 @@ else
                                         @onclick="() => DeleteAsync(idea.Id)">🗑</button>
                             </div>
                         </div>
+
                         @if (!string.IsNullOrWhiteSpace(idea.Description))
                         {
-                            <p class="mb-1" style="white-space: pre-wrap;">@idea.Description</p>
+                            <p class="mb-2 text-body-secondary" style="white-space: pre-wrap;">@idea.Description</p>
                         }
+
                         @if (!string.IsNullOrWhiteSpace(idea.Criteria))
                         {
-                            <div class="mb-2">
-                                <div class="small fw-semibold text-muted text-uppercase">Acceptance criteria</div>
-                                <p class="mb-0" style="white-space: pre-wrap;">@idea.Criteria</p>
+                            <div class="mb-3">
+                                <div class="section-label mb-1">Acceptance criteria</div>
+                                <div class="criteria-box">@idea.Criteria</div>
                             </div>
                         }
 
-                        <div class="border-top pt-2 mt-2">
-                            <div class="small fw-semibold text-muted text-uppercase mb-1">Sub-tasks</div>
-                            @if (idea.SubTasks.Count == 0)
+                        <div class="border-top pt-3 mt-2">
+                            <div class="d-flex align-items-center justify-content-between mb-1">
+                                <span class="section-label">Sub-tasks</span>
+                                @if (total > 0)
+                                {
+                                    <span class="small text-muted">@done / @total done</span>
+                                }
+                            </div>
+
+                            @if (total > 0)
                             {
-                                <div class="small text-muted mb-1">No sub-tasks yet.</div>
-                            }
-                            else
-                            {
-                                <ul class="list-unstyled mb-1">
+                                <div class="progress progress-thin mb-2" role="progressbar"
+                                     aria-valuenow="@done" aria-valuemin="0" aria-valuemax="@total">
+                                    <div class="progress-bar bg-success"
+                                         style="width:@(done * 100 / total)%"></div>
+                                </div>
+                                <ul class="subtask-list mb-2">
                                     @foreach (var task in idea.SubTasks)
                                     {
-                                        <li class="d-flex align-items-center gap-2">
+                                        <li class="subtask-row">
                                             <input class="form-check-input mt-0" type="checkbox" checked="@task.Done"
                                                    @onchange="() => ToggleSubTaskAsync(idea.Id, task.Id)" />
-                                            <span class="@(task.Done ? "text-muted text-decoration-line-through" : "")">
-                                                @task.Title
-                                            </span>
-                                            <button class="btn btn-sm btn-link text-danger p-0 ms-auto" title="Delete sub-task"
+                                            <span class="@(task.Done ? "subtask-done" : "")">@task.Title</span>
+                                            <button class="btn btn-sm btn-link text-danger p-0 ms-auto subtask-del"
+                                                    title="Delete sub-task"
                                                     @onclick="() => DeleteSubTaskAsync(idea.Id, task.Id)">🗑</button>
                                         </li>
                                     }
                                 </ul>
                             }
-                            <div class="d-flex gap-2 mt-1">
+                            else
+                            {
+                                <div class="small text-muted mb-2">No sub-tasks yet — add the first below.</div>
+                            }
+
+                            <div class="d-flex gap-2">
                                 <input class="form-control form-control-sm" style="max-width:24rem"
                                        placeholder="Add a sub-task…"
                                        value="@SubTaskDraft(idea.Id)"
@@ -147,7 +179,7 @@ else
                             </div>
                         </div>
 
-                        <div class="small text-muted mt-2">Added @idea.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</div>
+                        <div class="small text-muted mt-3">Added @idea.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</div>
                     }
                 </div>
             </div>
@@ -167,9 +199,25 @@ else
     private string _editDescription = string.Empty;
     private string _editCriteria = string.Empty;
 
+    private string? _filter;
+    private string _search = string.Empty;
+
     private readonly Dictionary<string, string> _subTaskDrafts = new();
 
     protected override async Task OnInitializedAsync() => _ideas = await Ideas.LoadAllAsync();
+
+    private List<ImprovementIdea> Filtered()
+    {
+        IEnumerable<ImprovementIdea> q = _ideas;
+        if (_filter is not null)
+            q = q.Where(i => i.Status == _filter);
+        if (!string.IsNullOrWhiteSpace(_search))
+            q = q.Where(i => i.Title.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                          || i.Description.Contains(_search, StringComparison.OrdinalIgnoreCase));
+        return q.ToList();
+    }
+
+    private void SetFilter(string? status) => _filter = status;
 
     private void ToggleAdd()
     {
@@ -284,5 +332,13 @@ else
         "In Progress" => "bg-primary",
         "Planned" => "bg-info text-dark",
         _ => "bg-secondary",
+    };
+
+    private static string StatusBorder(string status) => status switch
+    {
+        "Done" => "status-done",
+        "In Progress" => "status-in-progress",
+        "Planned" => "status-planned",
+        _ => "status-proposed",
     };
 }

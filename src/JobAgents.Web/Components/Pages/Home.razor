@@ -268,14 +268,14 @@
                     <label class="form-label small mb-0 d-block">
                         Search effort <span class="text-muted">(how many web searches to run)</span>
                     </label>
-                    @foreach (var (label, value, hint) in SearchEffortOptions)
+                    @foreach (var (label, value, _) in SearchEffortOptions)
                     {
                         <div class="form-check form-check-inline">
                             <input class="form-check-input" type="radio" name="searchEffort"
                                    id="@($"effort-{value}")"
                                    checked="@(_searchEffort == value)"
                                    @onchange="() => _searchEffort = value" />
-                            <label class="form-check-label small" for="@($"effort-{value}")">@label <span class="text-muted">@hint</span></label>
+                            <label class="form-check-label small" for="@($"effort-{value}")">@label <span class="text-muted">(@value · ~@(value * _creditsPerSearch) credits)</span></label>
                         </div>
                     }
                 </div>
@@ -596,6 +596,9 @@
         [("Light", 4, "(4)"), ("Normal", 6, "(6)"), ("Deep", 10, "(10)")];
     private int _searchEffort = 6;
     private int _searchBoost;
+    // Tavily credits per web search, from the user's sourcing depth (advanced = 2, basic = 1). Drives the
+    // credit hint on the effort selector; loaded on init from the saved Settings config.
+    private int _creditsPerSearch = 2;
 
     private const int PageSize = 5;
     private int _visibleCount = PageSize;
@@ -659,6 +662,10 @@
 
         var all = await Store.LoadAllAsync();
         _recent = all.Take(10).ToList();
+
+        // Credit hint on the effort selector reflects the user's sourcing depth (advanced 2 / basic 1).
+        var savedModels = await ModelConfig.LoadAsync();
+        _creditsPerSearch = (savedModels?.SearchDepth ?? SearchDepthSettings.Default).Sourcing ? 2 : 1;
 
         // Deep-linked "Run again" from Past Runs: pre-fill the form, and optionally auto-start.
         if (!string.IsNullOrEmpty(ContinueRunId) &&
