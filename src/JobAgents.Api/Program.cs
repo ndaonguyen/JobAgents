@@ -24,7 +24,7 @@ builder.Services
 // runs, profiles, settings and ideas. Override with the ResultsDirectory config key for tests/CI.
 var resultsDir = builder.Configuration["ResultsDirectory"] is { Length: > 0 } configured
     ? configured
-    : Path.Combine(
+    : Path.Join(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "JobAgents", "results");
 
@@ -36,7 +36,7 @@ builder.Services.AddSingleton(_ => new IdeaStore(resultsDir));
 builder.Services.AddSingleton<JobAgents.Infrastructure.Sourcing.IPostingStore>(
     _ => new JobAgents.Infrastructure.Sourcing.FilePostingStore(resultsDir));
 builder.Services.AddSingleton(
-    _ => new JobAgents.Infrastructure.Plugins.TavilySearchCache(Path.Combine(resultsDir, "tavily-cache")));
+    _ => new JobAgents.Infrastructure.Plugins.TavilySearchCache(Path.Join(resultsDir, "tavily-cache")));
 builder.Services.AddSingleton<ResumeTextExtractor>();
 
 // CORS so the Vite dev server (and a built preview) can call the API from another origin.
