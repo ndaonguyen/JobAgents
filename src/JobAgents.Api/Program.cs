@@ -108,7 +108,7 @@ app.MapPost("/api/hunt/run", async (
         {
             var run = new PersistedRun(
                 RunId.New().Value, DateTime.UtcNow, title, preferences, inputs, totalCost, result);
-            try { await runStore.SaveAsync(run, CancellationToken.None); } catch { /* best-effort */ }
+            try { await runStore.SaveAsync(run, CancellationToken.None); } catch (Exception) { /* best-effort */ }
             await Send("run.saved", JsonSerializer.Serialize(new { run.RunId }, json));
         }
 
