@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>JobAgents.Shared</RootNamespace>
+    <AssemblyName>JobAgents.Shared</AssemblyName>
+  </PropertyGroup>
+
+  <!--
+    Shared, host-agnostic services: file-backed stores (runs, profile, model config, ideas), the
+    resume text extractor, and source-host helpers. Extracted from JobAgents.Web so BOTH the Blazor
+    Server app and the JobAgents.Api (React backend) can register the exact same stores over the same
+    on-disk results directory. The namespace stays JobAgents.Web.Services so the Blazor components and
+    Program.cs need no changes.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../JobAgents.Application/JobAgents.Application.csproj" />
+    <ProjectReference Include="../JobAgents.Domain/JobAgents.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+  </ItemGroup>
+
+</Project>

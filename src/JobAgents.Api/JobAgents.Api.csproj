@@ -1,16 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <RootNamespace>JobAgents.Web</RootNamespace>
-    <AssemblyName>JobAgents.Web</AssemblyName>
+    <RootNamespace>JobAgents.Api</RootNamespace>
+    <AssemblyName>JobAgents.Api</AssemblyName>
+    <!--
+      Reuse the SAME user-secrets store as JobAgents.Web so the OpenAI / Anthropic / Tavily keys
+      configured for the Blazor app are picked up by the API with no re-entry.
+    -->
     <UserSecretsId>jobagents-web-dev</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../JobAgents.Application/JobAgents.Application.csproj" />
     <ProjectReference Include="../JobAgents.Infrastructure/JobAgents.Infrastructure.csproj" />
-    <!-- Stores + resume extractor (and their PdfPig/OpenXml deps) now live in JobAgents.Shared,
-         shared with JobAgents.Api. Namespace is still JobAgents.Web.Services, so nothing else changes. -->
     <ProjectReference Include="../JobAgents.Shared/JobAgents.Shared.csproj" />
   </ItemGroup>
 

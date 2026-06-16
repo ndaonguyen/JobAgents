@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/sourcehost.ts","./src/types.ts","./src/components/dossiercard.tsx","./src/pages/home.tsx","./src/pages/jdanalyzer.tsx","./src/pages/pastruns.tsx","./src/pages/roadmap.tsx","./src/pages/settings.tsx"],"errors":true,"version":"5.9.3"}

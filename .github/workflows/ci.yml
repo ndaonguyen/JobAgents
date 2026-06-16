@@ -121,8 +121,8 @@ jobs:
             /d:sonar.host.url="https://sonarcloud.io" \
             /d:sonar.token="$SONAR_TOKEN" \
             /d:sonar.cs.vscoveragexml.reportsPaths="coverage.xml" \
-            /d:sonar.coverage.exclusions="**/Program.cs,**/Components/**/*.razor,**/Components/**/*.razor.cs,eval/**,**/*.g.cs" \
-            /d:sonar.exclusions="eval/**,**/*.g.cs"
+            /d:sonar.coverage.exclusions="**/Program.cs,**/Components/**/*.razor,**/Components/**/*.razor.cs,eval/**,**/*.g.cs,web-react/**" \
+            /d:sonar.exclusions="eval/**,**/*.g.cs,web-react/**"
           dotnet build JobAgents.sln --configuration Release --no-restore
           dotnet-coverage collect \
             "dotnet test JobAgents.sln --configuration Release --no-build --filter FullyQualifiedName!~JobAgents.E2E" \
@@ -197,3 +197,52 @@ jobs:
           name: E2E Tests
           path: TestResults/**/*.trx
           reporter: dotnet-trx
+
+  # React front end: type-check + production build, then a Playwright smoke run that boots the
+  # JobAgents.Api backend and the Vite dev server and drives the SPA (no API keys needed — the
+  # smoke spec only exercises navigation + the API-backed Settings catalog, never the LLM agents).
+  react:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web-react
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-react/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check + build
+        run: npm run build
+
+      # Pre-build the API so the Playwright webServer (dotnet run) starts fast and deterministically.
+      - name: Build API
+        working-directory: .
+        run: dotnet build src/JobAgents.Api/JobAgents.Api.csproj -c Release
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke E2E
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: web-react/playwright-report
+          retention-days: 7

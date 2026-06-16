@@ -35,12 +35,21 @@ src/
   JobAgents.Domain          # value objects, JobHunt records, AgentEvent hierarchy (zero deps)
   JobAgents.Application      # ports (IOrchestrator, IAgentEventBus, …) + StartJobHuntUseCase
   JobAgents.Infrastructure   # Semantic Kernel agents, Coordinator, Tavily plugin, event bus, pricing
+  JobAgents.Shared          # host-agnostic file stores + resume extractor (shared by Web and Api)
   JobAgents.Web             # Blazor Server UI (live activity log + ranked dossiers) + run persistence
+  JobAgents.Api             # ASP.NET minimal API (REST + SSE) backing the React UI
+web-react/                  # React (Vite + TypeScript) front end — consumes JobAgents.Api
 tests/
   JobAgents.Domain.Tests
   JobAgents.Application.Tests
   JobAgents.Infrastructure.Tests
 ```
+
+Two interchangeable front ends sit on the same domain core. **Blazor Server** (`JobAgents.Web`)
+calls the domain in-process via DI. **React** (`web-react`) is a browser SPA, so it talks to
+`JobAgents.Api` over HTTP (plain JSON REST + Server-Sent Events for the live hunt). Both read and
+write the **same** on-disk results store, so saved runs, CVs, settings and ideas are shared — run
+either one, or both at once.
 
 Key patterns (ported from ResearchAgents):
 
@@ -54,15 +63,53 @@ Key patterns (ported from ResearchAgents):
 ## Running it
 
 Requires the .NET 9 SDK, an **OpenAI** API key, an **Anthropic** API key (the resume matcher runs on
-Claude), and a **Tavily** API key (for web search).
+Claude), and a **Tavily** API key (for web search). React additionally needs **Node 22+**.
+
+**One-time: set the API keys.** Both front ends share one user-secrets store
+(`UserSecretsId = jobagents-web-dev`), so you set the keys once and either app picks them up:
 
 ```bash
 cd src/JobAgents.Web
 dotnet user-secrets set "JobAgents:OpenAi:ApiKey" "sk-..."
 dotnet user-secrets set "JobAgents:Anthropic:ApiKey" "sk-ant-..."
 dotnet user-secrets set "JobAgents:Tavily:ApiKey" "tvly-..."
-dotnet run
 ```
+
+### Option A — Blazor Server (single process)
+
+```bash
+dotnet run --project src/JobAgents.Web      # → http://localhost:5221
+```
+
+Open the printed URL and you're done — the UI calls the agents in-process.
+
+### Option B — React (two processes: API + Vite)
+
+The React SPA needs the API backend running too. Two terminals:
+
+```bash
+# terminal 1 — API backend (REST + SSE)
+dotnet run --project src/JobAgents.Api       # → http://localhost:5300
+
+# terminal 2 — React dev server (proxies /api → :5300)
+cd web-react
+npm install                                  # first run only
+npm run dev                                  # → http://localhost:5173
+```
+
+Open **http://localhost:5173**. (Blazor on 5221 is optional and independent — it does not need to
+be running for React to work.)
+
+### All three at once
+
+From the repo root, one command launches Blazor + API + Vite, each in its own window (and runs
+`npm install` on first use):
+
+```powershell
+pwsh ./run-all.ps1
+```
+
+---
 
 You can target specific job sites via the **Sources** selector (ITviec, VietnamWorks, LinkedIn,
 TopCV, or the whole web) — these map to Tavily's `include_domains`, so no separate job-board API or
