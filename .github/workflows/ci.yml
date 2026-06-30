@@ -20,7 +20,7 @@ jobs:
       contents: read
       checks: write             # test-reporter publishes a check run with results
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -30,7 +30,7 @@ jobs:
 
       # Cache the NuGet package cache keyed on the lock-free central package list.
       - name: Cache NuGet packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props') }}
@@ -71,7 +71,7 @@ jobs:
       SONAR_ORG: ndaonguyen                # SonarCloud organization key — confirm/edit
       SONAR_PROJECT_KEY: ndaonguyen_JobAgents  # SonarCloud project key — confirm/edit
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Sonar needs full history for accurate blame / new-code detection.
           fetch-depth: 0
@@ -89,14 +89,14 @@ jobs:
           java-version: 17
 
       - name: Cache NuGet packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props') }}
           restore-keys: nuget-${{ runner.os }}-
 
       - name: Cache SonarCloud scanner
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.dotnet/tools
           key: sonar-tools-${{ runner.os }}
@@ -138,7 +138,7 @@ jobs:
       contents: read
       checks: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -146,7 +146,7 @@ jobs:
           global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props') }}
@@ -208,7 +208,7 @@ jobs:
       run:
         working-directory: web-react
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -216,7 +216,7 @@ jobs:
           global-json-file: global.json
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -240,7 +240,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: playwright-report
