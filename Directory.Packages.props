@@ -7,12 +7,12 @@
 
   <ItemGroup>
     <!-- Semantic Kernel -->
-    <PackageVersion Include="Microsoft.SemanticKernel" Version="1.77.0" />
-    <PackageVersion Include="Microsoft.SemanticKernel.Agents.Core" Version="1.77.0" />
+    <PackageVersion Include="Microsoft.SemanticKernel" Version="1.78.0" />
+    <PackageVersion Include="Microsoft.SemanticKernel.Agents.Core" Version="1.78.0" />
     <PackageVersion Include="Microsoft.SemanticKernel.Plugins.Web" Version="1.71.0-alpha" />
 
     <!-- Resume file parsing (PDF + Word) -->
-    <PackageVersion Include="PdfPig" Version="0.1.14" />
+    <PackageVersion Include="PdfPig" Version="0.1.15" />
     <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
 
     <!-- Microsoft.Extensions (versions dictated by Semantic Kernel 1.71 transitive deps) -->
@@ -20,7 +20,7 @@
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.9" />
@@ -34,7 +34,7 @@
     <PackageVersion Include="AwesomeAssertions" Version="8.2.0" />
     <PackageVersion Include="Moq" Version="4.20.72" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
-    <PackageVersion Include="Microsoft.Playwright.Xunit" Version="1.60.0" />
+    <PackageVersion Include="Microsoft.Playwright.Xunit" Version="1.61.0" />
   </ItemGroup>
 
 </Project>
