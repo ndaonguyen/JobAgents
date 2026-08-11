@@ -24,11 +24,11 @@ jobs:
     outputs:
       image: ${{ steps.ref.outputs.image }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Gate the image build on a passing test suite — never publish/deploy an untested commit.
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -87,7 +87,7 @@ jobs:
         if: ${{ env.FLY_API_TOKEN == '' }}
         run: echo "FLY_API_TOKEN not set — skipping deploy. Add the secret to enable Fly.io deploys."
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: ${{ env.FLY_API_TOKEN != '' }}
 
       - name: Setup flyctl
